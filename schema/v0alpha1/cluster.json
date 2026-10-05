@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://infra-model.invalid/schema/v0alpha1/cluster.json",
+  "title": "Cluster",
+  "type": "object",
+  "properties": {
+    "apiVersion": {
+      "const": "infra.model/v0alpha1"
+    },
+    "kind": {
+      "const": "Cluster"
+    },
+    "metadata": {
+      "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/metadata"
+    },
+    "spec": {
+      "type": "object",
+      "properties": {
+        "siteRef": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/siteRef"
+        },
+        "image": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/image"
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/clusterNode"
+          },
+          "minItems": 1
+        },
+        "extensions": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+        }
+      },
+      "required": [
+        "nodes"
+      ],
+      "additionalProperties": false
+    },
+    "status": {
+      "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/status"
+    },
+    "extensions": {
+      "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "spec"
+  ],
+  "additionalProperties": false
+}

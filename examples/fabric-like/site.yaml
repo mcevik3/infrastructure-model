@@ -1,0 +1,7 @@
+apiVersion: infra.model/v0alpha1
+kind: Site
+metadata:
+  name: lab-site
+spec:
+  location:
+    description: Illustrative deployment location

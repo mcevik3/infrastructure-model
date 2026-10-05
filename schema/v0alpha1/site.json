@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://infra-model.invalid/schema/v0alpha1/site.json",
+  "title": "Site",
+  "type": "object",
+  "properties": {
+    "apiVersion": {
+      "const": "infra.model/v0alpha1"
+    },
+    "kind": {
+      "const": "Site"
+    },
+    "metadata": {
+      "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/metadata"
+    },
+    "spec": {
+      "type": "object",
+      "properties": {
+        "location": {
+          "type": "object",
+          "properties": {
+            "description": {
+              "type": "string",
+              "minLength": 1
+            },
+            "country": {
+              "type": "string",
+              "minLength": 1
+            },
+            "region": {
+              "type": "string",
+              "minLength": 1
+            },
+            "city": {
+              "type": "string",
+              "minLength": 1
+            },
+            "extensions": {
+              "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        },
+        "extensions": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "status": {
+      "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/status"
+    },
+    "extensions": {
+      "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "spec"
+  ],
+  "additionalProperties": false
+}

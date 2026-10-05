@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://infra-model.invalid/schema/v0alpha1/link.json",
+  "title": "Link",
+  "type": "object",
+  "properties": {
+    "apiVersion": {
+      "const": "infra.model/v0alpha1"
+    },
+    "kind": {
+      "const": "Link"
+    },
+    "metadata": {
+      "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/metadata"
+    },
+    "spec": {
+      "type": "object",
+      "properties": {
+        "endpoints": {
+          "type": "array",
+          "items": {
+            "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/interfaceRef"
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true
+        },
+        "capabilities": {
+          "type": "object",
+          "properties": {
+            "bandwidth": {
+              "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/bandwidthQuantity"
+            },
+            "extensions": {
+              "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        },
+        "extensions": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+        }
+      },
+      "required": [
+        "endpoints"
+      ],
+      "additionalProperties": false
+    },
+    "status": {
+      "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/status"
+    },
+    "extensions": {
+      "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "spec"
+  ],
+  "additionalProperties": false
+}

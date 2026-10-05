@@ -1,0 +1,49 @@
+apiVersion: infra.model/v0alpha1
+kind: Cluster
+metadata:
+  name: openstack-lab
+spec:
+  siteRef: site/lab-site
+  image:
+    name: Rocky Linux
+    version: '9'
+  nodes:
+    - name: controller-1
+      realization: {type: vm}
+      roles: [controller]
+      requirements:
+        compute:
+          architecture: x86_64
+          cpu: {count: 4, unit: vcpu}
+        memory:
+          capacity: {value: 16, unit: GiB}
+        storage:
+          capacity: {value: 80, unit: GiB}
+      networkAttachments:
+        - name: management
+          networkRef: network/lab-management
+          addresses: [192.0.2.11]
+        - name: storage
+          networkRef: network/lab-storage
+          addresses: [198.51.100.11]
+    - name: compute-1
+      realization: {type: vm}
+      roles: [compute]
+      requirements:
+        compute:
+          architecture: x86_64
+          cpu: {count: 8, unit: vcpu}
+        memory:
+          capacity: {value: 32, unit: GiB}
+        storage:
+          capacity: {value: 200, unit: GiB}
+      networkAttachments:
+        - name: management
+          networkRef: network/lab-management
+          addresses: [192.0.2.21]
+        - name: storage
+          networkRef: network/lab-storage
+          addresses: [198.51.100.21]
+  extensions:
+    fabric.example/intent:
+      experimentName: openstack-lab

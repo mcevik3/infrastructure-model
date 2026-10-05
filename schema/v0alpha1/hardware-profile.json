@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://infra-model.invalid/schema/v0alpha1/hardware-profile.json",
+  "title": "HardwareProfile",
+  "type": "object",
+  "properties": {
+    "apiVersion": {
+      "const": "infra.model/v0alpha1"
+    },
+    "kind": {
+      "const": "HardwareProfile"
+    },
+    "metadata": {
+      "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/metadata"
+    },
+    "spec": {
+      "type": "object",
+      "properties": {
+        "manufacturer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "capabilities": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/capabilities"
+        },
+        "extensions": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+        }
+      },
+      "required": [
+        "capabilities"
+      ],
+      "additionalProperties": false
+    },
+    "status": {
+      "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/status"
+    },
+    "extensions": {
+      "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "spec"
+  ],
+  "additionalProperties": false
+}

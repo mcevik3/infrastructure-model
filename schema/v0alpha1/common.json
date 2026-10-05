@@ -1,0 +1,660 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://infra-model.invalid/schema/v0alpha1/common.json",
+  "title": "v0alpha1 common types",
+  "$defs": {
+    "name": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$(?![\\s\\S])"
+    },
+    "extensions": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*/[A-Za-z0-9][A-Za-z0-9._-]*$(?![\\s\\S])"
+      },
+      "additionalProperties": true
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/name"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "extensions": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "siteRef": {
+      "type": "string",
+      "pattern": "^site/[A-Za-z0-9][A-Za-z0-9._-]*$(?![\\s\\S])"
+    },
+    "profileRef": {
+      "type": "string",
+      "pattern": "^hardware-profile/[A-Za-z0-9][A-Za-z0-9._-]*$(?![\\s\\S])"
+    },
+    "networkRef": {
+      "type": "string",
+      "pattern": "^network/[A-Za-z0-9][A-Za-z0-9._-]*$(?![\\s\\S])"
+    },
+    "resourceRef": {
+      "type": "string",
+      "pattern": "^server/[A-Za-z0-9][A-Za-z0-9._-]*$(?![\\s\\S])"
+    },
+    "interfaceRef": {
+      "type": "string",
+      "pattern": "^(server/[A-Za-z0-9][A-Za-z0-9._-]*/network-adapter/[A-Za-z0-9][A-Za-z0-9._-]*|network-device/[A-Za-z0-9][A-Za-z0-9._-]*)/interface/[A-Za-z0-9][A-Za-z0-9._-]*$(?![\\s\\S])"
+    },
+    "byteQuantity": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "unit": {
+          "enum": [
+            "B",
+            "kB",
+            "MB",
+            "GB",
+            "TB",
+            "KiB",
+            "MiB",
+            "GiB",
+            "TiB"
+          ]
+        }
+      },
+      "required": [
+        "value",
+        "unit"
+      ],
+      "additionalProperties": false
+    },
+    "coreQuantity": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "unit": {
+          "enum": [
+            "core"
+          ]
+        }
+      },
+      "required": [
+        "value",
+        "unit"
+      ],
+      "additionalProperties": false
+    },
+    "threadQuantity": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "unit": {
+          "enum": [
+            "thread"
+          ]
+        }
+      },
+      "required": [
+        "value",
+        "unit"
+      ],
+      "additionalProperties": false
+    },
+    "frequencyQuantity": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "unit": {
+          "enum": [
+            "Hz",
+            "kHz",
+            "MHz",
+            "GHz"
+          ]
+        }
+      },
+      "required": [
+        "value",
+        "unit"
+      ],
+      "additionalProperties": false
+    },
+    "bandwidthQuantity": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "unit": {
+          "enum": [
+            "bps",
+            "Kbps",
+            "Mbps",
+            "Gbps",
+            "Tbps"
+          ]
+        }
+      },
+      "required": [
+        "value",
+        "unit"
+      ],
+      "additionalProperties": false
+    },
+    "compute": {
+      "type": "object",
+      "properties": {
+        "architecture": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cores": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/coreQuantity"
+        },
+        "threads": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/threadQuantity"
+        },
+        "frequency": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/frequencyQuantity"
+        },
+        "extensions": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+        },
+        "sockets": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/socketQuantity"
+        }
+      },
+      "required": [],
+      "additionalProperties": false,
+      "description": "Physical inventory: sockets, physical cores, and hardware threads."
+    },
+    "memory": {
+      "type": "object",
+      "properties": {
+        "capacity": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/byteQuantity"
+        },
+        "extensions": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+        }
+      },
+      "required": [
+        "capacity"
+      ],
+      "additionalProperties": false
+    },
+    "storage": {
+      "type": "object",
+      "properties": {
+        "capacity": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/byteQuantity"
+        },
+        "extensions": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+        },
+        "medium": {
+          "enum": [
+            "hdd",
+            "ssd",
+            "other"
+          ]
+        },
+        "protocol": {
+          "enum": [
+            "nvme",
+            "sata",
+            "sas",
+            "scsi",
+            "virtio",
+            "other"
+          ]
+        }
+      },
+      "required": [
+        "capacity"
+      ],
+      "additionalProperties": false
+    },
+    "capabilities": {
+      "type": "object",
+      "properties": {
+        "nodeTypes": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "baremetal",
+              "vm"
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "compute": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/compute"
+        },
+        "memory": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/memory"
+        },
+        "storage": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/storage"
+        },
+        "extensions": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "requirements": {
+      "type": "object",
+      "properties": {
+        "compute": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/computeRequirements"
+        },
+        "memory": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/memory"
+        },
+        "storage": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/storage"
+        },
+        "extensions": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "interface": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/name"
+        },
+        "macAddress": {
+          "type": "string",
+          "pattern": "^(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$(?![\\s\\S])"
+        },
+        "capabilities": {
+          "type": "object",
+          "properties": {
+            "bandwidth": {
+              "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/bandwidthQuantity"
+            },
+            "extensions": {
+              "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        },
+        "status": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/status"
+        },
+        "extensions": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "networkAdapter": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/name"
+        },
+        "manufacturer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pciAddress": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/pciAddress"
+        },
+        "interfaces": {
+          "type": "array",
+          "items": {
+            "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/interface"
+          },
+          "minItems": 1
+        },
+        "status": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/status"
+        },
+        "extensions": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+        }
+      },
+      "required": [
+        "name",
+        "interfaces"
+      ],
+      "additionalProperties": false
+    },
+    "pciAddress": {
+      "type": "string",
+      "pattern": "^(?:[0-9A-Fa-f]{4}:)?[0-9A-Fa-f]{2}:[01][0-9A-Fa-f]\\.[0-7]$(?![\\s\\S])"
+    },
+    "storageDevice": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/name"
+        },
+        "manufacturer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pciAddress": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/pciAddress"
+        },
+        "capacity": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/byteQuantity"
+        },
+        "status": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/status"
+        },
+        "extensions": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+        },
+        "medium": {
+          "enum": [
+            "hdd",
+            "ssd",
+            "other"
+          ]
+        },
+        "protocol": {
+          "enum": [
+            "nvme",
+            "sata",
+            "sas",
+            "scsi",
+            "virtio",
+            "other"
+          ]
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "image": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "extensions": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "networkAttachment": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/name"
+        },
+        "networkRef": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/networkRef"
+        },
+        "addresses": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "ip-address"
+          },
+          "uniqueItems": true
+        },
+        "status": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/status"
+        },
+        "extensions": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+        }
+      },
+      "required": [
+        "name",
+        "networkRef"
+      ],
+      "additionalProperties": false
+    },
+    "clusterNode": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/name"
+        },
+        "requirements": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/requirements"
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "image": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/image"
+        },
+        "networkAttachments": {
+          "type": "array",
+          "items": {
+            "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/networkAttachment"
+          }
+        },
+        "status": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/status"
+        },
+        "extensions": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+        },
+        "realization": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/realization"
+        },
+        "placement": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/placement"
+        }
+      },
+      "required": [
+        "name",
+        "realization"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "realization": {
+                "properties": {
+                  "type": {
+                    "const": "vm"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "placement": {
+                "not": {
+                  "required": [
+                    "resourceRef"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "socketQuantity": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "unit": {
+          "const": "socket"
+        }
+      },
+      "required": [
+        "value",
+        "unit"
+      ],
+      "additionalProperties": false
+    },
+    "cpuRequirement": {
+      "type": "object",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "unit": {
+          "enum": [
+            "vcpu",
+            "core",
+            "thread"
+          ]
+        }
+      },
+      "required": [
+        "count",
+        "unit"
+      ],
+      "additionalProperties": false,
+      "description": "Guest virtual CPU, physical-core, or hardware-thread demand. Physical core counts do not prove vCPU capacity."
+    },
+    "computeRequirements": {
+      "type": "object",
+      "properties": {
+        "architecture": {
+          "type": "string",
+          "minLength": 1
+        },
+        "frequency": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/frequencyQuantity"
+        },
+        "extensions": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+        },
+        "cpu": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/cpuRequirement"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "status": {
+      "type": "object",
+      "properties": {
+        "availability": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operationalState": {
+          "type": "string",
+          "minLength": 1
+        },
+        "powerState": {
+          "type": "string",
+          "minLength": 1
+        },
+        "observedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "extensions": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+        }
+      },
+      "required": [],
+      "additionalProperties": false,
+      "description": "Generic observations only; provider-specific transient/discovered state belongs under namespaced extensions. Not placement evidence."
+    },
+    "realization": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": [
+            "baremetal",
+            "vm"
+          ]
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "placement": {
+      "type": "object",
+      "properties": {
+        "siteRef": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/siteRef"
+        },
+        "resourceRef": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/resourceRef",
+          "description": "Exact selection of an existing Server; supported only for baremetal realization."
+        },
+        "extensions": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
+}

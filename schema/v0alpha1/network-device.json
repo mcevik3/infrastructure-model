@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://infra-model.invalid/schema/v0alpha1/network-device.json",
+  "title": "NetworkDevice",
+  "type": "object",
+  "properties": {
+    "apiVersion": {
+      "const": "infra.model/v0alpha1"
+    },
+    "kind": {
+      "const": "NetworkDevice"
+    },
+    "metadata": {
+      "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/metadata"
+    },
+    "spec": {
+      "type": "object",
+      "properties": {
+        "siteRef": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/siteRef"
+        },
+        "profileRef": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/profileRef"
+        },
+        "deviceType": {
+          "enum": [
+            "switch",
+            "router",
+            "firewall",
+            "other"
+          ]
+        },
+        "capabilities": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/capabilities"
+        },
+        "interfaces": {
+          "type": "array",
+          "items": {
+            "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/interface"
+          }
+        },
+        "extensions": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+        }
+      },
+      "required": [
+        "siteRef"
+      ],
+      "additionalProperties": false
+    },
+    "status": {
+      "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/status"
+    },
+    "extensions": {
+      "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "spec"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,79 @@
+apiVersion: infra.model/v0alpha1
+kind: Site
+metadata:
+  name: AMST
+spec:
+  location:
+    city: Amsterdam
+    country: NL
+---
+apiVersion: infra.model/v0alpha1
+kind: HardwareProfile
+metadata:
+  name: dell-r7525
+spec:
+  manufacturer: Dell
+  model: PowerEdge R7525
+  capabilities:
+    nodeTypes: [baremetal, vm]
+    compute:
+      architecture: x86_64
+      cores: {value: 64, unit: core}
+      threads: {value: 128, unit: thread}
+    memory:
+      capacity: {value: 512, unit: GiB}
+    storage:
+      capacity: {value: 2, unit: TB}
+      medium: ssd
+      protocol: nvme
+---
+apiVersion: infra.model/v0alpha1
+kind: Server
+metadata:
+  name: amst-w2
+spec:
+  siteRef: site/AMST
+  profileRef: hardware-profile/dell-r7525
+  networkAdapters:
+    - name: slot2
+      model: dual-port-100g
+      pciAddress: '0000:41:00.0'
+      interfaces:
+        - name: p1
+          macAddress: '02:00:00:00:02:01'
+          capabilities:
+            bandwidth: {value: 100, unit: Gbps}
+        - name: p2
+          macAddress: '02:00:00:00:02:02'
+          capabilities:
+            bandwidth: {value: 100, unit: Gbps}
+  storageDevices:
+    - name: nvme0
+      pciAddress: '0000:42:00.0'
+      capacity: {value: 2, unit: TB}
+      medium: ssd
+      protocol: nvme
+---
+apiVersion: infra.model/v0alpha1
+kind: NetworkDevice
+metadata:
+  name: amst-data-sw
+spec:
+  siteRef: site/AMST
+  deviceType: switch
+  interfaces:
+    - name: swp1
+      macAddress: '02:00:00:01:00:01'
+      capabilities:
+        bandwidth: {value: 100, unit: Gbps}
+---
+apiVersion: infra.model/v0alpha1
+kind: Link
+metadata:
+  name: amst-w2-data
+spec:
+  endpoints:
+    - server/amst-w2/network-adapter/slot2/interface/p1
+    - network-device/amst-data-sw/interface/swp1
+  capabilities:
+    bandwidth: {value: 100, unit: Gbps}

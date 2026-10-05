@@ -1,0 +1,51 @@
+apiVersion: infra.model/v0alpha1
+kind: Site
+metadata:
+  name: UC
+spec:
+  location:
+    city: Chicago
+    country: US
+---
+apiVersion: infra.model/v0alpha1
+kind: HardwareProfile
+metadata:
+  name: compute-cascadelake-r
+spec:
+  capabilities:
+    nodeTypes: [baremetal, vm]
+    compute:
+      architecture: x86_64
+      cores: {value: 48, unit: core}
+      threads: {value: 96, unit: thread}
+      frequency: {value: 2.4, unit: GHz}
+    memory:
+      capacity: {value: 192, unit: GiB}
+    storage:
+      capacity: {value: 480, unit: GB}
+      medium: ssd
+---
+apiVersion: infra.model/v0alpha1
+kind: Server
+metadata:
+  name: P3-CPU-004
+spec:
+  siteRef: site/UC
+  profileRef: hardware-profile/compute-cascadelake-r
+  networkAdapters:
+    - name: onboard
+      pciAddress: '0000:01:00.0'
+      interfaces:
+        - name: p1
+          macAddress: '02:00:00:00:03:04'
+          capabilities:
+            bandwidth: {value: 10, unit: Gbps}
+  extensions:
+    chameleon.example/resource:
+      nodeId: P3-CPU-004
+status:
+  observedAt: '2026-01-01T00:00:00Z'
+  powerState: unknown
+  extensions:
+    chameleon.example/observation:
+      discoveryState: illustrative

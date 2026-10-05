@@ -1,0 +1,17 @@
+apiVersion: infra.model/v0alpha1
+kind: Network
+metadata:
+  name: lab-management
+spec:
+  siteRef: site/lab-site
+  layer: layer3
+  prefixes: [192.0.2.0/24]
+---
+apiVersion: infra.model/v0alpha1
+kind: Network
+metadata:
+  name: lab-storage
+spec:
+  siteRef: site/lab-site
+  layer: layer3
+  prefixes: [198.51.100.0/24]
