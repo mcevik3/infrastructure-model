@@ -25,6 +25,13 @@
         "capabilities": {
           "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/serverCapabilities"
         },
+        "accelerators": {
+          "type": "array",
+          "items": {
+            "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/accelerator"
+          },
+          "description": "Complete accelerator inventory when present; omission means not reported, while an empty list means none."
+        },
         "networkAdapters": {
           "type": "array",
           "items": {

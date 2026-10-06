@@ -12,7 +12,7 @@ kind: HardwareProfile
 metadata:
   name: dell-r7525
 spec:
-  manufacturer: Dell
+  vendor: Dell
   model: PowerEdge R7525
   capabilities:
     nodeTypes: [baremetal, vm]
@@ -41,10 +41,12 @@ spec:
       pciAddress: '0000:41:00.0'
       interfaces:
         - name: p1
+          type: ethernet
           macAddress: '02:00:00:00:02:01'
           capabilities:
             bandwidth: {value: 100, unit: Gbps}
         - name: p2
+          type: ethernet
           macAddress: '02:00:00:00:02:02'
           capabilities:
             bandwidth: {value: 100, unit: Gbps}

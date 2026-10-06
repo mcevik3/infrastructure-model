@@ -12,6 +12,7 @@ _UNIT_FACTORS = {
     "B": 1, "kB": 1000, "MB": 1000**2, "GB": 1000**3, "TB": 1000**4,
     "KiB": 1024, "MiB": 1024**2, "GiB": 1024**3, "TiB": 1024**4,
     "Hz": 1, "kHz": 1000, "MHz": 1000**2, "GHz": 1000**3,
+    "bps": 1, "Kbps": 1000, "Mbps": 1000**2, "Gbps": 1000**3, "Tbps": 1000**4,
     "core": 1, "thread": 1,
 }
 
@@ -50,6 +51,62 @@ def _compare_cpu(required: dict, compute: dict, realization: str) -> _Compatibil
     if actual is None:
         return _Compatibility.UNKNOWN
     return _Compatibility.SATISFIED if actual >= required["count"] else _Compatibility.UNSATISFIED
+
+
+def _all_requirements(results: list[_Compatibility]) -> _Compatibility:
+    """A known mismatch rules out a candidate even if other fields are unknown."""
+    if _Compatibility.UNSATISFIED in results:
+        return _Compatibility.UNSATISFIED
+    if _Compatibility.UNKNOWN in results:
+        return _Compatibility.UNKNOWN
+    return _Compatibility.SATISFIED
+
+
+def _compare_features(required: list[str], actual: list[str] | None) -> _Compatibility:
+    if not required:
+        return _Compatibility.SATISFIED
+    if actual is None:
+        return _Compatibility.UNKNOWN
+    return (_Compatibility.SATISFIED if set(required) <= set(actual)
+            else _Compatibility.UNSATISFIED)
+
+
+def _matching_count(results: list[_Compatibility], count: int) -> _Compatibility:
+    """Count distinct candidates within one request; never reserve inventory."""
+    known = results.count(_Compatibility.SATISFIED)
+    if known >= count:
+        return _Compatibility.SATISFIED
+    if known + results.count(_Compatibility.UNKNOWN) >= count:
+        return _Compatibility.UNKNOWN
+    return _Compatibility.UNSATISFIED
+
+
+def _device_match(required: dict, actual: dict) -> _Compatibility:
+    results = []
+    if required["type"] == "dpu":
+        results.append(_compare("dpu", actual.get("class")))
+    elif required["type"] in {"gpu", "fpga"}:
+        results.append(_compare(required["type"], actual.get("type")))
+    for field, value in required.get("constraints", {}).items():
+        inventory_field = "capacity" if field == "minCapacity" else field
+        evidence = actual.get("capabilities", {}) if field == "features" and required["type"] in {"gpu", "fpga"} else actual
+        compare = _compare_features if field == "features" else _compare
+        results.append(compare(value, evidence.get(inventory_field)))
+    if required.get("extensions"):
+        results.append(_Compatibility.UNKNOWN)
+    return _all_requirements(results)
+
+
+def _interface_match(required: dict, interface: dict, adapter: dict) -> _Compatibility:
+    capabilities = interface.get("capabilities", {})
+    results = [_compare(required["type"], interface.get("type"))]
+    if "minSpeed" in required:
+        results.append(_compare(required["minSpeed"], capabilities.get("bandwidth")))
+    if "features" in required:
+        results.append(_compare_features(required["features"], capabilities.get("features")))
+    for field, value in required.get("adapter", {}).items():
+        results.append(_compare(value, adapter.get(field)))
+    return _all_requirements(results)
 
 
 class SemanticValidator:
@@ -311,6 +368,9 @@ class SemanticValidator:
                   _Compatibility.SATISFIED if realization in node_types else _Compatibility.UNSATISFIED)
         self._result(node, result, f"{resource.id} declares nodeTypes={node_types!r}; requires {realization}", "/realization/type")
         for group, fields in node.data.get("requirements", {}).items():
+            if group == "devices":
+                self._devices(fields, resource)
+                continue
             if group == "extensions":
                 if fields:
                     self._result(node, _Compatibility.UNKNOWN, "extension requirements have no generic evaluator", "/requirements/extensions")
@@ -331,6 +391,41 @@ class SemanticValidator:
                     detail = "has no declared" if result is _Compatibility.UNKNOWN else "does not meet the required"
                     message = f"{resource.id} {detail} {group}.{field} capability"
                 self._result(node, result, message, path)
+        self._interfaces(node, resource)
+
+    def _devices(self, requirements: list[dict], resource: Entry) -> None:
+        spec = resource.data["spec"]
+        for required in requirements:
+            entry = self.registry.entries[required["id"]]
+            if required["type"] == "storage":
+                inventory = spec.get("storage", {}).get("devices")
+            elif required["type"] == "dpu":
+                inventory = spec.get("networkAdapters")
+            elif required["type"] in {"gpu", "fpga"}:
+                inventory = spec.get("accelerators")
+            else:
+                # The broad "other" requirement has no generic inventory mapping.
+                # Opaque provider observations cannot prove these requirements.
+                inventory = None
+            count = required.get("count", 1)
+            result = (_Compatibility.UNKNOWN if inventory is None else
+                      _matching_count([_device_match(required, item) for item in inventory], count))
+            self._result(entry, result,
+                         f"{resource.id} device inventory must provide the requested count of matching {required['type']} components", "")
+
+    def _interfaces(self, node: Entry, resource: Entry) -> None:
+        adapters = resource.data["spec"].get("networkAdapters")
+        for attachment in node.data.get("networkAttachments", []):
+            required = attachment.get("interfaceRequirements")
+            if required is None:
+                continue
+            results = ([] if adapters is None else
+                       [_interface_match(required, interface, adapter)
+                        for adapter in adapters for interface in adapter["interfaces"]])
+            result = (_Compatibility.UNKNOWN if adapters is None else _matching_count(results, 1))
+            self._result(self.registry.entries[attachment["id"]], result,
+                         f"{resource.id} must provide an interface meeting the requested type, speed, features, and adapter constraints",
+                         "/interfaceRequirements")
 
     def _result(self, entry: Entry, result: _Compatibility, message: str, path: str) -> None:
         if result is _Compatibility.SATISFIED:

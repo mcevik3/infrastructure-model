@@ -11,7 +11,7 @@ kind: HardwareProfile
 metadata:
   name: dual-epyc-storage
 spec:
-  manufacturer: Dell
+  vendor: Dell
   model: PowerEdge R7525
   capabilities:
     nodeTypes: [baremetal]

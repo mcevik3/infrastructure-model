@@ -27,23 +27,23 @@ is provisional; this pass establishes no permanent organizational namespace.
 | --- | --- | --- |
 | Envelope | `apiVersion: infra.model/v0alpha1`, `kind`, `metadata`, `spec`; optional `status` and `extensions` | Confirm version spelling and field names against any earlier design. |
 | Reference syntax | Canonical IDs with case-sensitive names; documented storage-local syntax expands deterministically | Confirm case sensitivity and allowed name characters. |
-| Embedded fields | `networkAdapters`, `interfaces`, `storage.{controllers,devices,volumes}`, `nodes`, `networkAttachments`, and node partition/LVM collections; named embedded entities have `name` directly | Confirm field shapes; embedded objects do not add another `metadata/spec` envelope. |
-| Component uniqueness | Names unique within each collection under a parent; adapter/storage names may coincide | Canonical IDs retain kind-specific segments, including the existing `storage-device` segment. |
+| Embedded fields | `accelerators`, `networkAdapters`, `interfaces`, `storage.{controllers,devices,volumes}`, `nodes`, `networkAttachments`, node `requirements.devices`, and node partition/LVM collections; named embedded entities have `name` directly | Confirm field shapes; embedded objects do not add another `metadata/spec` envelope. |
+| Component uniqueness | Names unique within each collection under a parent; accelerator/adapter/storage names may coincide | Canonical IDs retain kind-specific segments, including the existing `storage-device` segment. |
 | Profile inheritance | Profile capabilities supply defaults; actual resource values are authoritative. Mappings merge recursively, lists replace, omitted values inherit | Components/status are not inherited. No delete/unset operation or partial quantity overlay is provided. |
 | Exact resource placement | `placement.resourceRef` selects an existing `server/<name>` only for `realization.type: baremetal` | VM exact references are rejected. VM host affinity may use namespaced extensions pending a future generic concept. |
 | Realization | `realization.type` is `vm` or `baremetal`; inventory `capabilities.nodeTypes` uses the same spellings | Explicit inventory advertisement is retained; Server type alone does not imply allocatability. Node-level legacy placement/type fields are rejected. |
 | CPU semantics | Integer inventory `compute.cpu.sockets/cores/threads` describe physical packages/cores and supported hardware threads. SMT enabled state is separate. Requirements use `compute.cpu: {count, unit}` with `vcpu`, `core`, or `thread` | Only exact bare-metal core/thread comparison is supported. Physical inventory never proves vCPU capacity; allocation/overcommit evidence is outside this version. |
 | Storage vocabulary | Independent optional `medium` and `protocol`; NVMe SSD is `ssd` plus `nvme` | `media` and `mixed` are removed. Unknown composition is omitted. Hardware controllers/devices/volumes now form explicit topology, with node partition/LVM intent separate. |
-| Compatibility | SATISFIED proves a requirement is met; UNSATISFIED proves it is not; UNKNOWN lacks enough generic evidence | Known failures are errors; UNKNOWN yields warnings. Site-only/unplaced nodes get one UNKNOWN placement warning each; storage sources may add availability warnings; successful validation is not proof of deployability. |
+| Compatibility | SATISFIED proves a requirement is met; UNSATISFIED proves it is not; UNKNOWN lacks enough generic evidence | Known failures are errors; UNKNOWN yields warnings. Site-only/unplaced nodes get one UNKNOWN placement warning each; storage sources may add availability warnings; successful validation is not proof of deployability. Component checks treat an authored collection as complete, with missing properties unknown. |
 | Placement scope | Compare each node independently; no capacity subtraction, reservations, or exclusive bare-metal binding | Confirm later admission/allocation policy separately from this static model. |
 | Quantities | SI and IEC byte units; positive integer physical CPU counts and explicit CPU requirement counts; frequency and bandwidth units; all values strictly positive | Confirm whether zero quantities, alternate spellings, overcommit ratios, or fractional CPU requests are needed later. |
-| PCI scope | Uniqueness within a Server across adapters, storage controllers, and storage devices; absent domain means `0000`; hex is case-insensitive | A global uniqueness check would incorrectly reject ordinary PCI address reuse on different machines. |
+| PCI scope | Uniqueness within a Server across accelerators, adapters, storage controllers, and storage devices; absent domain means `0000`; hex is case-insensitive | A global uniqueness check would incorrectly reject ordinary PCI address reuse on different machines. |
 | MAC scope | Uniqueness across every modeled inventory Interface, case-insensitive | Intentional shared virtual/anycast MACs are outside this physical inventory pass. |
 | Address shape | Attachment `addresses` are plain IPv4/IPv6 literals; Network `prefixes` use strict CIDR prefix-length notation, rejecting dotted netmasks/hostmasks | Confirm whether future addresses should include per-address metadata or allocation modes. |
 | Network prefix semantics | An address must belong to a prefix of its referenced Network; an address with no declared prefix fails | Overlapping prefixes, duplicate IPs, gateways, reserved/broadcast addresses, and routing policies are not validated. |
 | Site inheritance | Node `placement.siteRef` overrides the Cluster default; exact resources must match the effective site when one is supplied | Network site does not restrict attachments; cross-site connectivity is not inferred. |
 | OS image and roles | Cluster image supplies descriptive default intent; nodes may override image; roles are free strings | Image resolution, OS suitability, role definitions, and configuration generation are deferred. |
-| Extensions/status | Generic status fields are `availability`, `operationalState`, `powerState`, `observedAt`, and namespaced `extensions`; shared across top-level and embedded entities | Provider transient/discovered state belongs under `status.extensions`. Payloads stay opaque; no provider-specific status schemas. |
+| Extensions/status | Generic status fields are `availability`, `operationalState`, `powerState`, `observedAt`, and namespaced `extensions`; shared where entity schemas support status. Accelerator inventory adds no status or provider-specific fields | Provider transient/discovered state belongs under `status.extensions` where supported. Payloads stay opaque; no provider-specific status schemas. |
 | Example fidelity | Hardware values and IDs are illustrative | Confirm authoritative inventory data separately; these examples are not live provider claims. |
 
 ## Loading, packaging, and diagnostics
@@ -106,8 +106,9 @@ Hardware storage moves from `Server.spec.storageDevices` to
 `Server.spec.storage.{controllers,devices,volumes}`. Devices retain the
 `storage-device` canonical segment. Controllers use `mode`; volumes use
 `raid.level`, with no redundant controller type. Optional storage-device
-`manufacturer` becomes `vendor` to match the storage inventory vocabulary;
-profile and network-adapter manufacturer fields retain their existing names.
+`manufacturer` becomes `vendor` to match the storage inventory vocabulary.
+The accelerator correction extends this rename to HardwareProfile and
+NetworkAdapter, so generic hardware consistently uses `vendor`.
 All old alpha source shapes are rejected, without duplicate aliases.
 
 `ClusterNode.configuration.storage` holds partition tables and optional LVM.
@@ -136,6 +137,93 @@ to future Ansible/Nix adapters. Partition `type` and `role`, and names such as
 `lv_root`, do not imply filesystem or mount-point defaults. The conventional
 mapping documented in the model guide is illustrative policy, never schema data.
 
+## Device and network-interface extension decisions
+
+Inspection of committed revision `ff0d48c` identified two scope conflicts before
+editing. First, node-level image overrides were already accepted and documented,
+despite this extension request describing them as future work. Their existing
+schema and behavior are preserved without expansion. Second, Server had no
+GPU/FPGA inventory collection and no generic interface type, feature evidence,
+or adapter class. The extension adds the network/storage evidence fields and,
+following review of the device example, a generic accelerator collection. It
+retains existing storage and network inventory representations.
+
+`requirements.devices` accepts GPU, FPGA, DPU, storage, and other independent
+component intent. Count defaults semantically to 1 without inserting a value.
+Vendor/model/features apply to all types; protocol/minCapacity apply only to
+storage and other combinations fail schema validation. Each requirement has
+kind `DeviceRequirement`, canonical path
+`cluster/<cluster>/node/<node>/requirement/device/<name>`, and `contains` plus
+`requires_device` edges from its ClusterNode. Grouping segments have no entities.
+
+Storage requests match existing StorageDevices, not volumes or aggregate
+capacity. DPU requests match NetworkAdapters with `class: dpu`, counting adapters
+rather than ports. GPU/FPGA requests match `Server.spec.accelerators` entries of
+the same type, using the existing tri-state constraint and count evaluator.
+The broad `other` device requirement remains UNKNOWN because it has no generic
+inventory mapping. Opaque provider payloads are not used as a substitute.
+
+`Server.spec.accelerators` is optional and is a sibling of `storage` and
+`networkAdapters`. Each entry requires `name` and `type` (`gpu`, `fpga`, `other`),
+with optional `vendor`, `model`, `pciAddress`, and `capabilities.features`.
+Names are unique within a Server's accelerator collection, regardless of type.
+The embedded kind is `Accelerator`, with identity
+`server/<server>/accelerator/<name>` and Server → Accelerator `contains` and
+`has_accelerator` relationships. Existing Server-scoped PCI uniqueness applies.
+DPU remains exclusively a network-adapter class, not an accelerator type.
+No accelerator allocation, GPU memory, MIG, FPGA bitstreams, NUMA/device
+affinity, per-device operating state, or provider-specific properties are added.
+
+This correction intentionally breaks old v0alpha1 source documents using
+`HardwareProfile.spec.manufacturer` or `Server.spec.networkAdapters[].manufacturer`.
+Both must use `vendor`, matching StorageController, StorageDevice, Accelerator,
+and device/interface constraints. No deprecated aliases or automatic migration
+are provided. The API version stays v0alpha1; see the
+[migration table](model-v0alpha1.md#source-model-migration).
+
+NetworkAttachment `interfaceRequirements` stays an attribute object. Type is
+required when the object is supplied. Optional adapter requirements require a
+class; basic Ethernet needs no adapter object. Existing Interface gains optional
+`type` and `capabilities.features`; NetworkAdapter gains optional `class` and
+`features`; StorageDevice gains optional `features`. Existing bandwidth is
+preserved; requested adapter/DPU `vendor` directly matches NetworkAdapter
+`vendor`. Adapter features describe independently requested
+DPU capability and do not imply features on every interface.
+
+For component matching, supplied collections and supplied feature lists are
+complete; empty lists explicitly mean none, while omission means unknown.
+For GPU/FPGA requests, omitted `accelerators` is UNKNOWN, while an empty
+collection or a collection lacking the requested type is UNSATISFIED.
+Incomplete candidate fields remain unknown. A candidate with a known mismatch
+cannot match; enough proven matches satisfy a request; too few candidates even
+including unknown matches disprove it. No per-node or cross-node reservation,
+count subtraction, or attachment/interface allocation follows from these checks.
+Different requests can independently be satisfied by the same component.
+
+Feature names are unique normalized lowercase strings, with initial network
+vocabulary `rdma` and `sriov`. Other generic names are allowed without changing
+the schema. Uppercase/whitespace forms fail rather than being rewritten. The
+core does not infer capabilities from model strings or expand provider aliases.
+
+There is no binding between device requests and interface requests. Independent
+DPU demand and a DPU-backed attachment are distinct intent; v0alpha1 neither
+requires two descriptions of an ordinary NIC nor establishes whether two
+requests use one physical component. Device/PCI/NUMA affinity and allocation
+must be reviewed before introducing such cross-references.
+
+The [model guide](model-v0alpha1.md#historical-fabric-topology-vocabulary) records
+historical FABRIC mappings explicitly. The VM example keeps Cluster Rocky Linux
+9 image, CPU/memory/storage demand, and addresses, and adds Ethernet attachment
+requirements, layer2 Networks, and namespaced OpenStack roles. Provider service
+and component choices remain future adapter responsibilities. The separate
+device example proves GPU, FPGA, NVMe, and interface requirements from generic
+inventory, with explicit GPU/FPGA counts of 1 and zero compatibility warnings.
+
+All new source fields are optional additions. Previously valid documents remain
+valid; no old field, canonical ID, relation, or schema/distribution version is
+removed or renamed. Hostnames, image resolution/override policy, gateways, and
+DNS receive no new behavior and remain future review items.
+
 ## Intentionally deferred
 
 - Filesystem definitions, creation/formatting/provisioning, mount points, fstab,
@@ -153,8 +241,14 @@ mapping documented in the model guide is illustrative policy, never schema data.
 - Scheduling, VM overcommit, reservations, aggregate capacity accounting,
   partition/LVM allocation math, source exclusivity across tables/whole devices,
   physical port occupancy, and proof of live availability.
-- Additional component families/accelerators, attachment-to-NIC binding, network
-  services, routing, and address allocation.
+- Broader `other` device requirement mapping, attachment-to-NIC binding, network services,
+  routing, gateway/DNS policy, and address allocation.
+- Accelerator allocation, GPU memory requirements, per-accelerator operating state,
+  PCI placement, NUMA/device affinity, GPU partitioning/MIG, FPGA bitstreams,
+  DPU OS configuration, RDMA configuration, SR-IOV VF allocation, guest interface
+  names, and NetworkManager connection names.
+- Hostname policy and node image override policy review (existing node `image`
+  remains accepted); postboot provisioning and SELinux/OS configuration policy.
 - Image catalogs, role execution, OS compatibility, and extension-specific validation.
 - Export/save, migration tooling, schema version negotiation, and elaborate Python
   domain classes while field shapes remain alpha.

@@ -1,0 +1,95 @@
+# Research-node intent with inventory proving GPU, FPGA, NVMe, and interface requirements.
+apiVersion: infra.model/v0alpha1
+kind: Site
+metadata:
+  name: device-lab
+spec: {}
+---
+apiVersion: infra.model/v0alpha1
+kind: Server
+metadata:
+  name: research-host
+spec:
+  siteRef: site/device-lab
+  capabilities:
+    nodeTypes: [baremetal]
+  storage:
+    devices:
+      - name: nvme0
+        medium: ssd
+        protocol: nvme
+        capacity: {value: 2, unit: TB}
+      - name: nvme1
+        medium: ssd
+        protocol: nvme
+        capacity: {value: 2, unit: TB}
+  accelerators:
+    - name: gpu0
+      type: gpu
+      vendor: NVIDIA
+      model: A100
+    - name: fpga0
+      type: fpga
+      vendor: AMD
+      model: Alveo U280
+  networkAdapters:
+    - name: data-adapter
+      class: smartnic
+      vendor: NVIDIA
+      model: ConnectX-6
+      interfaces:
+        - name: p1
+          type: ethernet
+          capabilities:
+            bandwidth: {value: 100, unit: Gbps}
+            features: [rdma, sriov]
+---
+apiVersion: infra.model/v0alpha1
+kind: Network
+metadata:
+  name: research-data
+spec:
+  siteRef: site/device-lab
+  layer: layer2
+  prefixes: [203.0.113.0/24]
+---
+apiVersion: infra.model/v0alpha1
+kind: Cluster
+metadata:
+  name: research
+spec:
+  siteRef: site/device-lab
+  nodes:
+    - name: worker-1
+      realization: {type: baremetal}
+      placement:
+        resourceRef: server/research-host
+      requirements:
+        devices:
+          - name: accelerator
+            type: gpu
+            count: 1
+            constraints:
+              vendor: NVIDIA
+              model: A100
+          - name: fpga
+            type: fpga
+            count: 1
+          - name: local-nvme
+            type: storage
+            count: 2
+            constraints:
+              protocol: nvme
+              minCapacity: {value: 1, unit: TB}
+      networkAttachments:
+        - name: data
+          networkRef: network/research-data
+          interfaceRequirements:
+            type: ethernet
+            minSpeed: {value: 100, unit: Gbps}
+            features: [rdma]
+            adapter:
+              class: smartnic
+              vendor: NVIDIA
+              model: ConnectX-6
+          addresses: [203.0.113.11]

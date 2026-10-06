@@ -10,7 +10,7 @@ spec:
   nodes:
     - name: controller-1
       realization: {type: vm}
-      roles: [controller]
+      roles: [openstack.control, openstack.network, openstack.storage]
       requirements:
         compute:
           architecture: x86_64
@@ -22,13 +22,15 @@ spec:
       networkAttachments:
         - name: management
           networkRef: network/lab-management
+          interfaceRequirements: {type: ethernet}
           addresses: [192.0.2.11]
         - name: storage
           networkRef: network/lab-storage
+          interfaceRequirements: {type: ethernet}
           addresses: [198.51.100.11]
     - name: compute-1
       realization: {type: vm}
-      roles: [compute]
+      roles: [openstack.compute]
       requirements:
         compute:
           architecture: x86_64
@@ -40,9 +42,11 @@ spec:
       networkAttachments:
         - name: management
           networkRef: network/lab-management
+          interfaceRequirements: {type: ethernet}
           addresses: [192.0.2.21]
         - name: storage
           networkRef: network/lab-storage
+          interfaceRequirements: {type: ethernet}
           addresses: [198.51.100.21]
   extensions:
     fabric.example/intent:

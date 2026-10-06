@@ -16,7 +16,7 @@
     "spec": {
       "type": "object",
       "properties": {
-        "manufacturer": {
+        "vendor": {
           "type": "string",
           "minLength": 1
         },

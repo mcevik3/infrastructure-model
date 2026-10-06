@@ -6,12 +6,12 @@ from infra_model import InfrastructureModel, ValidationError
 from conftest import ROOT
 
 
-@pytest.mark.parametrize("directory,count", [("examples", 16), ("examples/baremetal", 4), ("examples/amst", 5), ("examples/chameleon-like", 3), ("examples/fabric-like", 4)])
+@pytest.mark.parametrize("directory,count", [("examples", 20), ("examples/baremetal", 4), ("examples/amst", 5), ("examples/chameleon-like", 3), ("examples/fabric-like", 4), ("examples/device-requirements", 4)])
 def test_examples_validate(directory, count):
     model = InfrastructureModel.load(ROOT / directory)
     report = model.validate()
     assert report.document_count == count
-    expected_warnings = 2 if directory in {"examples", "examples/fabric-like"} else 0
+    expected_warnings = {"examples": 2, "examples/fabric-like": 2}.get(directory, 0)
     assert len(report.warnings) == expected_warnings
     assert all("UNKNOWN" in warning.message for warning in report.warnings)
 
@@ -19,17 +19,52 @@ def test_examples_validate(directory, count):
 def test_public_api_and_embedded_identities():
     model = InfrastructureModel.load(ROOT / "examples")
     assert model.get("server/amst-w2")["kind"] == "Server"
-    assert len(model.servers()) == 3
-    assert len(model.networks()) == 2
+    assert len(model.servers()) == 4
+    assert len(model.networks()) == 3
     interface = model.get("server/amst-w2/network-adapter/slot2/interface/p1")
     assert interface["kind"] == "Interface"
     node = model.get("cluster/openstack-lab/node/controller-1")
     assert node["kind"] == "ClusterNode"
-    assert len(model.documents) == 16
+    assert len(model.documents) == 20
     assert all(doc["kind"] != "ClusterNode" for doc in model.documents)
-    assert len(model.topology) == model.validate().entity_count == 55
+    assert len(model.topology) == model.validate().entity_count == 70
     with pytest.raises(KeyError):
         model.get("server/missing")
+
+
+def test_fabric_like_example_keeps_vm_intent_and_generic_network_semantics():
+    model = InfrastructureModel.load(ROOT / "examples/fabric-like")
+    cluster = model.get("cluster/openstack-lab")
+    assert cluster["spec"]["image"] == {"name": "Rocky Linux", "version": "9"}
+    nodes = cluster["spec"]["nodes"]
+    assert set(nodes[0]["roles"]) == {"openstack.control", "openstack.network", "openstack.storage"}
+    assert nodes[1]["roles"] == ["openstack.compute"]
+    assert all(n["realization"] == {"type": "vm"} for n in nodes)
+    assert all(n["requirements"]["compute"]["cpu"]["unit"] == "vcpu" for n in nodes)
+    assert all("capacity" in n["requirements"][group] for n in nodes for group in ["memory", "storage"])
+    assert all(network["spec"]["layer"] == "layer2" for network in model.networks())
+    assert all(a["interfaceRequirements"] == {"type": "ethernet"} and a["addresses"]
+               for n in nodes for a in n["networkAttachments"])
+
+
+def test_existing_node_image_behavior_preserved(documents, inventory):
+    node = inventory["Cluster/openstack-lab"]["spec"]["nodes"][0]
+    node["image"] = {"name": "Existing override", "version": "1"}
+    model = InfrastructureModel.from_documents(documents)
+    assert model.get("cluster/openstack-lab/node/controller-1")["image"] == node["image"]
+    assert model.get("cluster/openstack-lab")["spec"]["image"] == {"name": "Rocky Linux", "version": "9"}
+
+
+def test_device_example_proves_all_device_and_interface_requirements():
+    model = InfrastructureModel.load(ROOT / "examples/device-requirements")
+    report = model.validate()
+    assert not report.warnings
+    requirements = model.of_kind("DeviceRequirement")
+    assert {r["type"] for r in requirements} == {"gpu", "fpga", "storage"}
+    assert next(r for r in requirements if r["type"] == "storage")["count"] == 2
+    assert all(r["count"] == 1 for r in requirements if r["type"] in {"gpu", "fpga"})
+    assert {a["type"] for a in model.of_kind("Accelerator")} == {"gpu", "fpga"}
+    assert model.of_kind("NetworkAttachment")[0]["interfaceRequirements"]["features"] == ["rdma"]
 
 
 def test_reads_are_defensive_copies(documents):

@@ -71,13 +71,16 @@ Examples of embedded IDs:
 server/amst-w2/network-adapter/slot2
 server/amst-w2/network-adapter/slot2/interface/p1
 server/amst-w2/storage-device/nvme0
+server/research-host/accelerator/gpu0
 network-device/amst-data-sw/interface/swp1
 cluster/openstack-lab/node/controller-1
 cluster/openstack-lab/node/controller-1/network-attachment/management
+cluster/research/node/worker-1/requirement/device/accelerator
 ```
 
-Named embedded entities have a direct `name` property and optional `extensions` and
-`status`. Names must be unique within each collection under a parent. For
+Named embedded entities have a direct `name` property, with optional `extensions`
+and `status` where their schemas support them. Names must be unique within each
+collection under a parent, including across accelerator types. For
 example, `server/x/storage-device/nvme-1` and
 `server/x/network-adapter/nvme-1` may coexist; two storage devices named
 `nvme-1` under `server/x` may not. The existing `storage-device` canonical
@@ -153,7 +156,7 @@ demand against physical inventory. Physical core/thread counts cannot prove
 vCPU compatibility: v0alpha1 has no generic virtualization allocation or
 overcommit evidence, so this comparison is UNKNOWN.
 
-Requirements also support `memory` and `storage`, but never `nodeTypes` or
+Requirements also support `memory`, `storage`, and named `devices`, but never `nodeTypes` or
 inventory CPU fields such as `cores`. The node's `realization.type` expresses
 the requested execution form. Requirements are minimum quantities and exact
 string matches for architecture, medium, and protocol. Each storage field is
@@ -164,7 +167,7 @@ checked independently when required; missing information yields UNKNOWN.
 **Site** has an optional `spec.location` object containing descriptive `description`,
 `country`, `region`, and `city` strings. Geography is not inferred from its name.
 
-**HardwareProfile** requires `spec.capabilities`; optional `manufacturer` and
+**HardwareProfile** requires `spec.capabilities`; optional `vendor` and
 `model` describe hardware. Profiles have no physical identity, component instances,
 or site constraint. Empty capabilities express that no capabilities are declared.
 
@@ -180,12 +183,33 @@ merge. The same capability merge applies to a NetworkDevice using a profile.
 the authored resource fields separate from the profile. Status is never merged
 into capabilities. Capacities are not inferred or summed from components.
 
-A Server may contain `spec.networkAdapters` and `spec.storage`:
+A Server's inventory is organized as follows (paths are relative to `spec`):
+
+```text
+Server
+  compute (capabilities.compute)
+  memory (capabilities.memory)
+  storage
+    controllers
+    devices
+    volumes
+  accelerators
+    GPU (type: gpu)
+    FPGA (type: fpga)
+    other (type: other)
+  networkAdapters
+    standard NIC (class: standard)
+    SmartNIC (class: smartnic)
+    DPU (class: dpu)
+```
+
+Aggregate storage capability remains under `capabilities.storage`. The optional
+`accelerators`, `networkAdapters`, and `storage` inventories are siblings:
 
 ```yaml
 networkAdapters:
   - name: slot2
-    manufacturer: Example vendor
+    vendor: Example vendor
     model: dual-port
     pciAddress: '0000:41:00.0'
     interfaces:
@@ -200,20 +224,42 @@ storage:
       capacity: {value: 2, unit: TB}
       medium: ssd
       protocol: nvme
+accelerators:
+  - name: gpu0
+    type: gpu
+    vendor: NVIDIA
+    model: A100
+    pciAddress: '0000:81:00.0'
+  - name: fpga0
+    type: fpga
+    vendor: AMD
+    model: Alveo U280
+    pciAddress: '0000:82:00.0'
 ```
 
-A NetworkAdapter requires one or more interfaces. Adapter `manufacturer`, `model`,
-and `pciAddress` are optional. An Interface requires only a name and may declare
-`macAddress` and `capabilities.bandwidth`. An adapter is not itself a Link endpoint.
+An Accelerator requires `name` and `type` (`gpu`, `fpga`, or `other`). Optional
+fields are `vendor`, `model`, `pciAddress`, and `capabilities: {features: [...]}`.
+Feature names use the same normalized generic vocabulary as device constraints.
+No GPU memory, MIG, bitstream, device operating state, or provider-specific fields
+are added. DPU is not an accelerator type; it remains a NetworkAdapter with
+`class: dpu`. Accelerators have kind `Accelerator` and canonical identity
+`server/<server>/accelerator/<name>`, with `contains` and `has_accelerator`
+relationships from their Server. Names may repeat on different Servers or in
+other component collections, but not within one Server's accelerator collection.
+
+A NetworkAdapter requires one or more interfaces. Adapter `vendor`, `model`,
+`pciAddress`, `class`, and `features` are optional. An Interface requires only a
+name and may declare `type`, `macAddress`, `capabilities.bandwidth`, and
+`capabilities.features`. An adapter is not itself a Link endpoint.
 Storage devices may declare `vendor`, `model`, `serial`, `pciAddress`, `capacity`,
-`medium`, `protocol`, `controllerRef`, and `location.bay`. Storage hardware is
+`medium`, `protocol`, `features`, `controllerRef`, and `location.bay`. Storage hardware is
 described further below; aggregate storage capabilities remain separate and
 are never inferred from components.
 
 PCI addresses have `[domain:]bus:device.function` hexadecimal syntax (device
 `00`–`1f`, function `0`–`7`); an omitted
 domain is treated as `0000` for duplicate detection. They must be unique across
-all adapters, storage controllers, and storage devices within one Server.
+all accelerators, adapters, storage controllers, and storage devices within one Server.
 Different Servers may reuse PCI addresses. MAC addresses use six colon-separated hexadecimal octets and must
 be unique across modeled Interfaces, ignoring case. Authored spellings are preserved.
 
@@ -266,6 +312,7 @@ spec:
       networkAttachments:
         - name: management
           networkRef: network/management
+          interfaceRequirements: {type: ethernet}
           addresses: [192.0.2.11]
 ```
 
@@ -280,6 +327,205 @@ Optional `addresses` are unique plain IPv4/IPv6 host literals, without prefix
 lengths or IPv6 zone IDs. Every address must lie within at least one same-family
 prefix declared on that Network. An addressless attachment may refer to a Network
 without prefixes. Addresses are intent, distinct from observed addresses in status.
+
+## Device and interface requirements
+
+`ClusterNode.requirements.devices` requests independently needed hardware
+components. Entries require `name` and `type`; `count` is an optional positive
+integer, semantically 1 when omitted. Neither validation nor query normalization
+inserts the default into the source or returned dictionaries. Supported types
+are `gpu`, `fpga`, `dpu`, `storage`, and `other`; NVMe is a storage protocol,
+never a device type. Names are unique within this node's device requirement
+collection and may be reused by other nodes or other embedded collections.
+
+```yaml
+requirements:
+  devices:
+    - name: accelerator
+      type: gpu
+      constraints: {vendor: NVIDIA, model: A100}
+    - name: fpga
+      type: fpga
+    - name: independent-dpu
+      type: dpu
+    - name: local-nvme
+      type: storage
+      count: 2
+      constraints:
+        protocol: nvme
+        minCapacity: {value: 1, unit: TB}
+```
+
+The optional `constraints` object is closed to unknown fields:
+
+| Constraint | Applicable types | Meaning |
+| --- | --- | --- |
+| `vendor`, `model` | All | Nonempty, case-sensitive exact strings |
+| `features` | All | All listed normalized capabilities must be supported by each matching component |
+| `protocol` | `storage` only | Existing storage vocabulary: `nvme`, `sata`, `sas`, `scsi`, `virtio`, `other` |
+| `minCapacity` | `storage` only | Existing byte Quantity; minimum capacity of **each** matching device |
+
+Schema validation rejects protocol/capacity constraints on other types, invalid
+counts or units, and unsupported fields/types. Device requirements are embedded
+`DeviceRequirement` entities with optional standard `status` and `extensions`.
+Their canonical ID is
+`cluster/<cluster>/node/<node>/requirement/device/<name>`. The grouping path
+`requirement/device` introduces no intermediate entities. A node has both
+`contains` and `requires_device` edges to each requirement. There are no edges
+from requirements to matching physical components: validation does not allocate.
+
+Each network attachment may instead express `interfaceRequirements`:
+
+```yaml
+networkAttachments:
+  - name: data
+    networkRef: network/research-data
+    interfaceRequirements:
+      type: ethernet
+      minSpeed: {value: 100, unit: Gbps}
+      features: [rdma, sriov]
+      adapter:
+        class: smartnic
+        vendor: NVIDIA
+        model: ConnectX-6
+```
+
+When present, `interfaceRequirements` requires `type`: `ethernet`, `infiniband`,
+or `other`. Optional `minSpeed` uses the existing bandwidth Quantity (`bps`,
+`Kbps`, `Mbps`, `Gbps`, `Tbps`), and `features` is a list. Optional `adapter`
+requires `class` (`standard`, `smartnic`, `dpu`, `other`), with optional nonempty
+`vendor` and `model`. Classes are exact categories, with no inferred hierarchy.
+An ordinary interface needs only `{type: ethernet}`; it does not require
+`adapter.class: standard`. The adapter object constrains the adapter providing
+the interface. These values remain structured attributes on NetworkAttachment,
+without separate graph entities or a physical interface reference.
+
+All new feature lists use unique normalized lowercase strings matching
+`[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*`. Inputs must already be normalized: uppercase,
+whitespace, and duplicate values are rejected, not silently rewritten. The
+initial recognized network vocabulary is `rdma` (remote direct memory access)
+and `sriov` (single-root I/O virtualization). Future generic names are accepted
+without a schema change and matched as exact strings; provider component names
+are not feature vocabulary. No feature implies configuration or allocation.
+
+Ordinary or specialized connectivity to a logical Network belongs primarily in
+`networkAttachments[].interfaceRequirements`; users need not repeat a NIC under
+`requirements.devices`. A DPU can be requested independently as `type: dpu`, or
+an attachment can require `adapter: {class: dpu}`. There is intentionally no
+cross-reference between these requests. They are checked independently and may
+refer conceptually to the same hardware; neither co-location on one component
+nor separation onto different components is established.
+
+### Inventory evidence and compatibility
+
+The current inventory taxonomy remains authoritative:
+
+| Requirement | Evidence |
+| --- | --- |
+| `requirements.devices[type=gpu]` | `Server.spec.accelerators[type=gpu]` |
+| `requirements.devices[type=fpga]` | `Server.spec.accelerators[type=fpga]` |
+| `requirements.devices[type=storage]` | `Server.spec.storage.devices`, never RAID volumes or aggregate storage capability |
+| `requirements.devices[type=dpu]` | `Server.spec.networkAdapters[class=dpu]`, counted once per adapter, not once per port |
+| `requirements.devices[type=other]` | UNKNOWN: no generic mapping for this broad requirement type |
+| Network interface | Interfaces inside this Server's `networkAdapters`, plus properties of each containing adapter |
+
+There is deliberately no second generic inventory collection duplicating storage
+or networking. GPU and FPGA requests match accelerator entries of the requested
+type, including vendor/model/features and counts across distinct entries. The
+inventory type `other` can describe other accelerators, but does not prove the
+broader device requirement type `other`.
+Opaque extensions and observed status never supply compatibility evidence.
+
+To expose the minimum network evidence, existing inventory types gain optional
+`Interface.type`, `Interface.capabilities.features`, `NetworkAdapter.class`, and
+`NetworkAdapter.features`. StorageDevice also gains optional `features`.
+Network speed still uses `Interface.capabilities.bandwidth`. Requested hardware
+`vendor` compares directly to the inventory component's `vendor` field for
+accelerators, storage devices, and adapters. Accelerator feature constraints use
+`Accelerator.capabilities.features`. Adapter features apply to independent DPU requests; interface feature
+requests use that specific interface's `capabilities.features`, without inferring
+port capabilities from adapter features or a vendor/model name. NetworkDevice
+interfaces share the new optional type/features fields, but switch ports and Link
+bandwidth are not candidates for Server interface requirements.
+
+For these checks, an omitted relevant component collection means inventory is
+unknown. A supplied collection is a complete enumeration for that family;
+`[]` explicitly declares none. Within an enumerated component, missing fields
+mean unknown. A supplied feature list is a complete supported-feature set for
+that component/interface; `[]` means no features, and absence of a requested
+feature from a supplied list proves a mismatch. Inventory authors must omit
+collections/feature lists whose completeness they cannot assert. Profiles do
+not supply component instances or per-component evidence. In particular, omitted
+`Server.spec.accelerators` means not reported/UNKNOWN for GPU and FPGA requests;
+`accelerators: []` means known to contain none/UNSATISFIED. A present accelerator
+collection with no entry of the requested type is also UNSATISFIED. A matching
+type with a required vendor, model, or feature list unreported is UNKNOWN unless
+other known constraints or insufficient possible matches already prove failure.
+
+All constraints must match the same candidate. A known mismatch rules that
+candidate out even when another property is unreported. For each device request:
+
+- Enough fully matching distinct components for `count` → SATISFIED.
+- Fewer possible matches than `count`, even including uncertain candidates → UNSATISFIED.
+- Otherwise, or when the collection is omitted → UNKNOWN.
+
+For each interface request, the same rule applies with a count of one suitable
+interface and its own adapter. A known suitable interface suffices despite other
+incomplete candidates. If every eligible interface is 25 Gbps, a 100 Gbps request
+is UNSATISFIED; if an otherwise eligible port's speed or requested RDMA support
+is unreported, it is UNKNOWN. Exact rational Quantity comparison is reused.
+Nonempty device requirement extensions also prevent proof of satisfaction because
+they have no generic evaluator; known core mismatches can still prove failure.
+
+The existing diagnostic model is retained: SATISFIED emits no diagnostic,
+UNSATISFIED emits `incompatible_resource`, and UNKNOWN emits
+`unevaluated_requirement`. Device diagnostics identify the embedded requirement's
+source path; interface diagnostics identify the attachment's
+`interfaceRequirements`. Without exact placement, VM/site-only and unplaced
+intent remain valid with the existing single UNKNOWN placement warning per node.
+
+Every requirement and attachment is evaluated independently, even within one
+node. Counts do not reserve inventory or subtract it from another request.
+There is no component/port exclusivity, scheduling, binding, PCI-slot assignment,
+NUMA/device affinity, GPU partitioning, or proof of live availability.
+
+### Historical FABRIC topology vocabulary
+
+The [FABRIC-like example](../examples/fabric-like/cluster.yaml) keeps VM
+realization, vCPU/memory/storage capacity requirements, Cluster Rocky Linux 9
+image intent, and static addresses. Its logical Networks are `layer2`, and
+ordinary attachments request Ethernet. Namespaced semantic roles describe
+OpenStack control, network, storage, and compute responsibilities.
+
+| Historical vocabulary | Generic meaning or future owner |
+| --- | --- |
+| `site` | Cluster `siteRef` / node `placement.siteRef` |
+| `capacity.cpu` | `requirements.compute.cpu` with `unit: vcpu` for VMs |
+| `capacity.ram` | `requirements.memory` |
+| `capacity.disk` | `requirements.storage` |
+| `capacity.os` | Cluster `image` |
+| `pci.gpu` | `requirements.devices[type=gpu]` |
+| `pci.fpga` | `requirements.devices[type=fpga]` |
+| `pci.nvme` | `requirements.devices[type=storage, constraints.protocol=nvme]` |
+| `pci.network` / `NIC_Basic` | `networkAttachments[].interfaceRequirements`, ordinarily `{type: ethernet}` |
+| `binding` | `networkAttachments[].networkRef` |
+| `L2Bridge` | Network `layer: layer2`; future FABRIC adapter selects the provider service |
+| OpenStack role booleans | Semantic roles such as `openstack.control`, `openstack.network`, `openstack.storage`, `openstack.compute` |
+| NetworkManager device/connection names | Future OS configuration adapter |
+| Ansible-specific fields | Future Ansible adapter |
+| `postboot` | Future provisioning/configuration layer |
+| SELinux settings | OS configuration policy |
+
+These provider/tool-specific fields were deliberately removed from core intent,
+not accidentally lost. A future FABRIC adapter may map a generic layer2 Network
+to `L2Bridge` and an Ethernet VM attachment to `NIC_Basic` or another suitable
+component. No such vocabulary, translation, or adapter is implemented in core
+schema or validation.
+
+Hostname behavior and Cluster image behavior are unchanged. The committed
+v0alpha1 already accepted node-level `image`; this extension preserves that
+source compatibility rather than introducing or expanding overrides. Hostname
+policy, image override policy, gateways, and DNS remain future review items.
 
 ## Exact resource placement
 
@@ -315,6 +561,9 @@ Validation checks exact bare-metal selection as follows:
    minima are met by effective capabilities after exact unit conversion.
 4. Requested architecture, storage medium, and storage protocol each match
    their declared capability independently.
+5. Independent device requirements match enough known components in the relevant
+   Server collection; interface requirements match at least one suitable interface
+   and its containing adapter. The evidence rules below define incomplete inventory.
 
 The internal compatibility contract has three results:
 
@@ -392,6 +641,7 @@ ID. Edges preserve these meanings and directions:
 | `has_storage_controller` | Server → StorageController |
 | `has_storage_device` | Server → StorageDevice |
 | `has_storage_volume` | Server → StorageVolume |
+| `has_accelerator` | Server → Accelerator |
 | `controls` | StorageController → StorageDevice |
 | `provides` | StorageController → StorageVolume |
 | `uses_device` | StorageVolume → StorageDevice |
@@ -400,6 +650,7 @@ ID. Edges preserve these meanings and directions:
 | `has_partition` | PartitionTable → Partition |
 | `uses_pv` | VolumeGroup → PhysicalVolume |
 | `allocated_from` | LogicalVolume → VolumeGroup |
+| `requires_device` | ClusterNode → DeviceRequirement |
 
 `topology.nodes(kind=None)` returns normalized dictionaries;
 `topology.edges(relation=None)` returns dictionaries with `source`, `target`,
@@ -644,6 +895,16 @@ All additional deferred features are listed in [decisions.md](decisions.md#inten
 
 ## Source-model migration
 
+The device/interface extension and accelerator inventory add optional fields to
+existing source shapes. The accompanying hardware identity cleanup intentionally
+renames `manufacturer` to `vendor` on HardwareProfile and NetworkAdapter, matching
+storage inventory. Documents using the old fields must migrate; aliases are not
+accepted. CPU/storage migration rules below still apply. New canonical identities
+and relations are `DeviceRequirement`/`requires_device` and
+`Accelerator`/`has_accelerator`; existing identities and relations are retained.
+New component checks apply only when their requirements are authored. Existing per-node `image`
+acceptance remains unchanged despite its policy being deferred for review.
+
 This remains v0alpha1 with clean schema corrections and no deprecated aliases:
 
 | Previous source field | Current source field |
@@ -653,11 +914,13 @@ This remains v0alpha1 with clean schema corrections and no deprecated aliases:
 | `spec.capabilities.compute.threads: {value: 256, unit: thread}` | `spec.capabilities.compute.cpu.threads: 256` |
 | `Server.spec.storageDevices` | `Server.spec.storage.devices` |
 | StorageDevice `manufacturer` | StorageDevice `vendor` |
+| `HardwareProfile.spec.manufacturer` | `HardwareProfile.spec.vendor` |
+| `Server.spec.networkAdapters[].manufacturer` | `Server.spec.networkAdapters[].vendor` |
 
 CPU changes apply wherever inventory capabilities are authored, including
 profiles and NetworkDevices. `compute.architecture`, `compute.frequency`,
-CPU requirement `{count, unit}`, aggregate `capabilities.storage`, and other
-manufacturer fields retain their existing shapes. Old source shapes are rejected.
+CPU requirement `{count, unit}`, and aggregate `capabilities.storage` retain
+their existing shapes. Old source shapes are rejected.
 Existing canonical IDs and relations are retained; storage identity/relationship
 additions and local-reference normalization are described above. No migration
 command, source writer, provider adapter, or schema-version change is introduced.

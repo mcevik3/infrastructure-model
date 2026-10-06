@@ -22,11 +22,12 @@ python -m pytest
 Expected example result:
 
 ```text
-Valid: 16 documents, 55 entities, 2 warnings
+Valid: 20 documents, 70 entities, 2 warnings
 ```
 
 The two FABRIC-like VM nodes produce UNKNOWN warnings because site placement
-and requirements alone do not prove resource compatibility.
+and requirements alone do not prove resource compatibility. The focused device
+example proves its GPU, FPGA, NVMe, and interface requirements with zero warnings.
 
 The CLI accepts one file or recursively loads `.yaml` and `.yml` files from a
 directory. Files may contain multiple documents separated by `---`. References
@@ -81,7 +82,8 @@ Examples are illustrative, not discovered inventories or provider adapter output
 | [chameleon-like](examples/chameleon-like/inventory.yaml) | UC, compute-cascadelake-r, P3-CPU-004 |
 | [amst](examples/amst/inventory.yaml) | AMST, Dell R7525 profile, amst-w2, switch, physical Link |
 | [baremetal](examples/baremetal/infrastructure.yaml) | Dual-socket EPYC, SMT/NUMA, controller/disks/RAID volumes, GPT and LVM with exact bare-metal placement |
-| [fabric-like](examples/fabric-like/cluster.yaml) | Site, management/storage Networks, Rocky Linux VM nodes, roles, static IPv4 attachments |
+| [fabric-like](examples/fabric-like/cluster.yaml) | Layer2 management/storage Networks, Rocky Linux 9 VMs, namespaced OpenStack roles, Ethernet requirements, static IPv4 attachments |
+| [device-requirements](examples/device-requirements/infrastructure.yaml) | GPU/FPGA inventory and intent, two NVMe devices, 100 Gbps Ethernet/RDMA SmartNIC attachment, exact placement with zero warnings |
 
 Each example directory also validates independently. Inventory capacities and
 identifiers are illustrative. Provider names occur only in example descriptions
@@ -118,9 +120,28 @@ and the topology exposes controller, device, partition, PV, VG, and LV relations
 Filesystem and mount-point policy is deliberately outside v0alpha1; the core
 stops at block devices and LVM.
 
+Server accelerator inventory lives alongside storage and network adapters in
+`spec.accelerators`. Entries require `name` and `type` (`gpu`, `fpga`, `other`),
+with optional `vendor`, `model`, `pciAddress`, and `capabilities.features`.
+DPU inventory remains under `networkAdapters` with `class: dpu`.
+
 This alpha evolution removes the old `spec.storageDevices` collection and moves
 inventory CPU counts from `compute.{sockets,cores,threads}: {value, unit}` to
-`compute.cpu.{sockets,cores,threads}: <integer>`. Storage device `manufacturer`
-is now `vendor`; other component/profile manufacturer fields are unchanged.
+`compute.cpu.{sockets,cores,threads}: <integer>`. Generic hardware identity now
+consistently uses `vendor`: `manufacturer` is rejected on HardwareProfile,
+NetworkAdapter, and StorageDevice, with no backward-compatible aliases.
 See the [migration notes](docs/model-v0alpha1.md#source-model-migration) for the
 complete compatibility and canonical identity contract.
+
+Nodes can request independent hardware with `requirements.devices` (`gpu`,
+`fpga`, `dpu`, `storage`, `other`). Each entry has a unique name and defaults to
+one component; NVMe is `type: storage` with `constraints.protocol: nvme`.
+Logical network attachments can request `interfaceRequirements`, from basic
+`{type: ethernet}` to speed, features (`rdma`, `sriov`), and adapter class.
+Exact placement checks use Server accelerators for GPU/FPGA requirements, storage
+devices for storage requirements, and network adapters for DPU requirements;
+they do not allocate components or bind attachments to physical interfaces.
+Omitted inventory collections mean not reported/UNKNOWN; explicitly empty lists
+mean known to contain none and make requirements for that family UNSATISFIED.
+See [device and interface requirements](docs/model-v0alpha1.md#device-and-interface-requirements)
+for fields, evidence rules, and the historical FABRIC vocabulary mapping.

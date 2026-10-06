@@ -55,6 +55,8 @@ class Topology:
                     self._edge(data["controllerRef"], entry.id, relation)
                 for device in data.get("deviceRefs", []):
                     self._edge(entry.id, device, "uses_device")
+            elif entry.kind == "Accelerator":
+                self._edge(entry.parent, entry.id, "has_accelerator")
             elif entry.kind in {"PartitionTable", "PhysicalVolume", "VolumeGroup", "LogicalVolume"}:
                 self._edge(entry.parent, entry.id, "configures")
                 if "sourceRef" in data:
@@ -65,6 +67,8 @@ class Topology:
                     self._edge(entry.id, data["volumeGroupRef"], "allocated_from")
             elif entry.kind == "Partition":
                 self._edge(entry.parent, entry.id, "has_partition")
+            elif entry.kind == "DeviceRequirement":
+                self._edge(entry.parent, entry.id, "requires_device")
 
     def _edge(self, source: str, target: str, relation: str, key: str | None = None, **attributes: Any) -> None:
         self._graph.add_edge(source, target, key=key or relation, relation=relation, **attributes)

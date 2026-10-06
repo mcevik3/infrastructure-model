@@ -46,6 +46,7 @@ class Registry:
             self.documents.append(data)
             spec = data["spec"]
             if entry.kind == "Server":
+                self._children(entry, spec, "/spec", "accelerators", "accelerator", "Accelerator")
                 for adapter in self._children(entry, spec, "/spec", "networkAdapters", "network-adapter", "NetworkAdapter"):
                     self._children(adapter, adapter.data, adapter.path, "interfaces", "interface", "Interface")
                 storage = spec.get("storage", {})
@@ -60,6 +61,8 @@ class Registry:
             elif entry.kind == "Cluster":
                 for node in self._children(entry, spec, "/spec", "nodes", "node", "ClusterNode"):
                     self._children(node, node.data, node.path, "networkAttachments", "network-attachment", "NetworkAttachment")
+                    self._children(node, node.data.get("requirements", {}), node.path + "/requirements",
+                                   "devices", "requirement/device", "DeviceRequirement")
                     storage = node.data.get("configuration", {}).get("storage", {})
                     path = node.path + "/configuration/storage"
                     for table in self._children(node, storage, path, "partitionTables", "storage/partition-table", "PartitionTable"):

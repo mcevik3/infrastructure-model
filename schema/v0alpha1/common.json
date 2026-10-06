@@ -243,6 +243,12 @@
         },
         "extensions": {
           "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+        },
+        "devices": {
+          "type": "array",
+          "items": {
+            "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/deviceRequirement"
+          }
         }
       },
       "required": [],
@@ -266,6 +272,9 @@
             },
             "extensions": {
               "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+            },
+            "features": {
+              "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/featureList"
             }
           },
           "required": [],
@@ -276,6 +285,9 @@
         },
         "extensions": {
           "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+        },
+        "type": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/interfaceType"
         }
       },
       "required": [
@@ -289,7 +301,7 @@
         "name": {
           "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/name"
         },
-        "manufacturer": {
+        "vendor": {
           "type": "string",
           "minLength": 1
         },
@@ -312,11 +324,57 @@
         },
         "extensions": {
           "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+        },
+        "class": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/adapterClass"
+        },
+        "features": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/featureList"
         }
       },
       "required": [
         "name",
         "interfaces"
+      ],
+      "additionalProperties": false
+    },
+    "accelerator": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/name"
+        },
+        "type": {
+          "enum": [
+            "gpu",
+            "fpga",
+            "other"
+          ]
+        },
+        "vendor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pciAddress": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/pciAddress"
+        },
+        "capabilities": {
+          "type": "object",
+          "properties": {
+            "features": {
+              "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/featureList"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "name",
+        "type"
       ],
       "additionalProperties": false
     },
@@ -387,6 +445,9 @@
           },
           "required": [],
           "additionalProperties": false
+        },
+        "features": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/featureList"
         }
       },
       "required": [
@@ -436,6 +497,9 @@
         },
         "extensions": {
           "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+        },
+        "interfaceRequirements": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/interfaceRequirements"
         }
       },
       "required": [
@@ -1326,6 +1390,175 @@
         }
       },
       "required": [],
+      "additionalProperties": false
+    },
+    "featureList": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$(?![\\s\\S])"
+      },
+      "uniqueItems": true,
+      "description": "Unique normalized lowercase capability names; initial network vocabulary: rdma, sriov. Inventory lists are complete: omitted means unknown; [] means none."
+    },
+    "interfaceType": {
+      "enum": [
+        "ethernet",
+        "infiniband",
+        "other"
+      ]
+    },
+    "adapterClass": {
+      "enum": [
+        "standard",
+        "smartnic",
+        "dpu",
+        "other"
+      ]
+    },
+    "deviceConstraints": {
+      "type": "object",
+      "properties": {
+        "vendor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "features": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/featureList"
+        },
+        "protocol": {
+          "enum": [
+            "nvme",
+            "sata",
+            "sas",
+            "scsi",
+            "virtio",
+            "other"
+          ]
+        },
+        "minCapacity": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/byteQuantity"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "deviceRequirement": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/name"
+        },
+        "type": {
+          "enum": [
+            "gpu",
+            "fpga",
+            "dpu",
+            "storage",
+            "other"
+          ]
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1
+        },
+        "constraints": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/deviceConstraints"
+        },
+        "status": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/status"
+        },
+        "extensions": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+        }
+      },
+      "required": [
+        "name",
+        "type"
+      ],
+      "additionalProperties": false,
+      "description": "Independent hardware demand; count defaults semantically to 1 without materializing a source value. protocol and minCapacity apply only to storage.",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "not": {
+                  "const": "storage"
+                }
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "constraints": {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "protocol"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "minCapacity"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "adapterRequirement": {
+      "type": "object",
+      "properties": {
+        "class": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/adapterClass"
+        },
+        "vendor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "class"
+      ],
+      "additionalProperties": false
+    },
+    "interfaceRequirements": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/interfaceType"
+        },
+        "minSpeed": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/bandwidthQuantity"
+        },
+        "features": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/featureList"
+        },
+        "adapter": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/adapterRequirement"
+        }
+      },
+      "required": [
+        "type"
+      ],
       "additionalProperties": false
     }
   }
