@@ -80,7 +80,7 @@ def test_duplicate_mac_case_insensitive_across_resources(documents, inventory):
 
 @pytest.mark.parametrize("address", ["0000:41:00.0", "41:00.0"])
 def test_duplicate_pci_between_component_types(documents, inventory, address):
-    inventory["Server/amst-w2"]["spec"]["storageDevices"][0]["pciAddress"] = address
+    inventory["Server/amst-w2"]["spec"]["storage"]["devices"][0]["pciAddress"] = address
     assert_error(documents, "duplicate_pci", "0000:41:00.0")
 
 
@@ -138,7 +138,7 @@ def test_duplicate_component_names(documents, inventory, collection):
         "adapters": server["networkAdapters"],
         "interfaces": server["networkAdapters"][0]["interfaces"],
         "switch_interfaces": inventory["NetworkDevice/amst-data-sw"]["spec"]["interfaces"],
-        "devices": server["storageDevices"], "nodes": nodes,
+        "devices": server["storage"]["devices"], "nodes": nodes,
         "attachments": nodes[0]["networkAttachments"],
     }[collection]
     items.append(deepcopy(items[0]))
@@ -146,7 +146,7 @@ def test_duplicate_component_names(documents, inventory, collection):
 
 
 def test_component_names_may_repeat_across_collections(documents, inventory):
-    inventory["Server/amst-w2"]["spec"]["storageDevices"][0]["name"] = "slot2"
+    inventory["Server/amst-w2"]["spec"]["storage"]["devices"][0]["name"] = "slot2"
     model = InfrastructureModel.from_documents(documents)
     assert model.get("server/amst-w2/storage-device/slot2")["kind"] == "StorageDevice"
     assert model.get("server/amst-w2/network-adapter/slot2")["kind"] == "NetworkAdapter"

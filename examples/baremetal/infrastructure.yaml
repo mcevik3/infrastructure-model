@@ -1,0 +1,194 @@
+apiVersion: infra.model/v0alpha1
+kind: Site
+metadata:
+  name: baremetal-lab
+spec:
+  location:
+    description: Illustrative bare-metal storage lab
+---
+apiVersion: infra.model/v0alpha1
+kind: HardwareProfile
+metadata:
+  name: dual-epyc-storage
+spec:
+  manufacturer: Dell
+  model: PowerEdge R7525
+  capabilities:
+    nodeTypes: [baremetal]
+    compute:
+      architecture: x86_64
+      cpu:
+        vendor: AMD
+        model: EPYC
+        smt:
+          supported: true
+        numa:
+          supportedNodesPerSocket: [1, 2, 4]
+---
+apiVersion: infra.model/v0alpha1
+kind: Server
+metadata:
+  name: server01
+spec:
+  siteRef: site/baremetal-lab
+  profileRef: hardware-profile/dual-epyc-storage
+  capabilities:
+    compute:
+      cpu:
+        vendor: AMD
+        model: EPYC
+        sockets: 2
+        cores: 128
+        threads: 256
+        topology:
+          coresPerSocket: 64
+          threadsPerCore: 2
+        smt:
+          supported: true
+          enabled: true
+        numa:
+          mode: numa
+          nodesPerSocket: 4
+          nodes:
+            - {id: 0, socket: 0, cores: 16, memory: {capacity: {value: 64, unit: GiB}}}
+            - {id: 1, socket: 0, cores: 16, memory: {capacity: {value: 64, unit: GiB}}}
+            - {id: 2, socket: 0, cores: 16, memory: {capacity: {value: 64, unit: GiB}}}
+            - {id: 3, socket: 0, cores: 16, memory: {capacity: {value: 64, unit: GiB}}}
+            - {id: 4, socket: 1, cores: 16, memory: {capacity: {value: 64, unit: GiB}}}
+            - {id: 5, socket: 1, cores: 16, memory: {capacity: {value: 64, unit: GiB}}}
+            - {id: 6, socket: 1, cores: 16, memory: {capacity: {value: 64, unit: GiB}}}
+            - {id: 7, socket: 1, cores: 16, memory: {capacity: {value: 64, unit: GiB}}}
+    memory:
+      capacity: {value: 512, unit: GiB}
+  storage:
+    controllers:
+      - name: controller-1
+        vendor: Dell
+        model: PERC H755
+        mode: raid
+        pciAddress: '0000:41:00.0'
+    devices:
+      - name: disk0
+        controllerRef: controller-1
+        medium: ssd
+        protocol: sas
+        capacity: {value: 1.92, unit: TB}
+        location: {bay: 0}
+      - name: disk1
+        controllerRef: controller-1
+        medium: ssd
+        protocol: sas
+        capacity: {value: 1.92, unit: TB}
+        location: {bay: 1}
+      - name: disk2
+        controllerRef: controller-1
+        medium: ssd
+        protocol: sas
+        capacity: {value: 3.84, unit: TB}
+        location: {bay: 2}
+      - name: disk3
+        controllerRef: controller-1
+        medium: ssd
+        protocol: sas
+        capacity: {value: 3.84, unit: TB}
+        location: {bay: 3}
+      - name: disk4
+        controllerRef: controller-1
+        medium: ssd
+        protocol: sas
+        capacity: {value: 3.84, unit: TB}
+        location: {bay: 4}
+      - name: disk5
+        controllerRef: controller-1
+        medium: ssd
+        protocol: sas
+        capacity: {value: 3.84, unit: TB}
+        location: {bay: 5}
+      - name: nvme0
+        medium: ssd
+        protocol: nvme
+        pciAddress: '0000:42:00.0'
+        capacity: {value: 2, unit: TB}
+    volumes:
+      - name: os
+        controllerRef: controller-1
+        raid: {level: raid1}
+        deviceRefs: [disk0, disk1]
+        capacity: {value: 1.92, unit: TB}
+      - name: data
+        controllerRef: controller-1
+        raid: {level: raid10}
+        deviceRefs: [disk2, disk3, disk4, disk5]
+        capacity: {value: 7.68, unit: TB}
+---
+apiVersion: infra.model/v0alpha1
+kind: Cluster
+metadata:
+  name: baremetal-cluster
+spec:
+  siteRef: site/baremetal-lab
+  nodes:
+    - name: storage-1
+      realization: {type: baremetal}
+      placement:
+        resourceRef: server/server01
+      roles: [storage]
+      requirements:
+        compute:
+          cpu: {count: 128, unit: core}
+        memory:
+          capacity: {value: 512, unit: GiB}
+      configuration:
+        storage:
+          partitionTables:
+            - name: os-layout
+              sourceRef: server/server01/storage-volume/os
+              type: gpt
+              alignment: {value: 1, unit: MiB}
+              partitions:
+                - name: efi
+                  number: 1
+                  type: efi-system
+                  role: efi
+                  size: {value: 1, unit: GiB}
+                - name: boot
+                  number: 2
+                  type: linux-filesystem
+                  role: boot
+                  size: {value: 2, unit: GiB}
+                - name: system
+                  number: 3
+                  type: linux-lvm
+                  role: lvm
+                  grow: true
+          lvm:
+            physicalVolumes:
+              - name: pv-system
+                sourceRef: partition-table/os-layout/partition/system
+              - name: pv-data
+                sourceRef: server/server01/storage-volume/data
+              - name: pv-scratch
+                sourceRef: server/server01/storage-device/nvme0
+            volumeGroups:
+              - name: vg_system
+                physicalVolumeRefs: [pv-system]
+              - name: vg_data
+                physicalVolumeRefs: [pv-data]
+              - name: vg_scratch
+                physicalVolumeRefs: [pv-scratch]
+            logicalVolumes:
+              - name: lv_root
+                volumeGroupRef: vg_system
+                capacity: {value: 100, unit: GiB}
+              - name: lv_var
+                volumeGroupRef: vg_system
+                capacity: {value: 200, unit: GiB}
+              - name: lv_home
+                volumeGroupRef: vg_system
+                grow: true
+              - name: lv_storage
+                volumeGroupRef: vg_data
+                grow: true
+              - name: lv_scratch
+                volumeGroupRef: vg_scratch
+                grow: true

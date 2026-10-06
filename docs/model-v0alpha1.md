@@ -62,7 +62,9 @@ References inside status or extensions are opaque and are not resolved.
 | Link | `link/<name>` | Physical point-to-point connectivity |
 | Cluster | `cluster/<name>` | Deployment intent with embedded nodes |
 
-There is no top-level ClusterNode document. IDs are derived, never authored.
+There is no top-level ClusterNode document. Canonical entity IDs are derived,
+never authored. A detailed NUMA node’s numeric `id` is an inventory identifier,
+not a canonical entity ID; NUMA records remain CPU topology values.
 Examples of embedded IDs:
 
 ```text
@@ -74,7 +76,7 @@ cluster/openstack-lab/node/controller-1
 cluster/openstack-lab/node/controller-1/network-attachment/management
 ```
 
-Embedded entities have a direct `name` property and optional `extensions` and
+Named embedded entities have a direct `name` property and optional `extensions` and
 `status`. Names must be unique within each collection under a parent. For
 example, `server/x/storage-device/nvme-1` and
 `server/x/network-adapter/nvme-1` may coexist; two storage devices named
@@ -83,18 +85,15 @@ segment is retained. The same interface name may appear under different adapters
 
 ## Quantities, capabilities, and requirements
 
-Inventory quantities and non-CPU requirements use `{value, unit}` objects.
-Values must be positive finite numbers; socket, core, and thread counts must be
-integral. ClusterNode CPU requirements instead use `{count, unit}`, with a
-positive integer count. Units are
-case-sensitive and dimension-specific:
+Capacity, frequency, bandwidth, partition size, and alignment quantities use
+`{value, unit}` objects with positive finite values. Inventory CPU counts use
+positive integers under `compute.cpu`. ClusterNode CPU requirements instead use
+`{count, unit}`, with a positive integer count. Units are case-sensitive and
+dimension-specific:
 
 | Quantity | Units |
 | --- | --- |
 | Memory/storage capacity | `B`, `kB`, `MB`, `GB`, `TB`, `KiB`, `MiB`, `GiB`, `TiB` |
-| Physical CPU sockets | `socket` |
-| Physical CPU cores | `core` |
-| Hardware CPU threads | `thread` |
 | CPU requirement | `vcpu`, `core`, `thread` (with `count`) |
 | CPU frequency | `Hz`, `kHz`, `MHz`, `GHz` |
 | Link/interface bandwidth | `bps`, `Kbps`, `Mbps`, `Gbps`, `Tbps` |
@@ -106,7 +105,8 @@ dictionaries. Integers are compared without rounding or conversion to decimal
 text, including arbitrarily large integers accepted by the input model. Other
 JSON numbers use their decimal string representation after parsing; this does
 not add arbitrary-precision decimal parsing to the YAML/JSON input model.
-Unitless shorthand is rejected.
+Unitless shorthand is rejected for quantities; named inventory CPU count fields
+are integers with their dimension fixed by the field name.
 
 Inventory capabilities may declare:
 
@@ -115,9 +115,10 @@ capabilities:
   nodeTypes: [baremetal, vm]
   compute:
     architecture: x86_64
-    sockets: {value: 2, unit: socket}
-    cores: {value: 64, unit: core}
-    threads: {value: 128, unit: thread}
+    cpu:
+      sockets: 2
+      cores: 64
+      threads: 128
     frequency: {value: 2.4, unit: GHz}
   memory:
     capacity: {value: 512, unit: GiB}
@@ -135,7 +136,8 @@ is omitted; neither field supports `mixed`. No aggregate composition is inferred
 Architecture is a case-sensitive descriptive string.
 
 Inventory Server CPU fields always describe physical hardware: `sockets` counts
-physical sockets, `cores` physical cores, and `threads` hardware threads.
+physical processor packages, `cores` total physical cores, and `threads` total
+hardware execution threads supported by the processors, regardless of SMT state.
 ClusterNode `requirements.compute` has optional `architecture`, `frequency`,
 `cpu`, and `extensions`, with CPU demand expressed as:
 
@@ -178,7 +180,7 @@ merge. The same capability merge applies to a NetworkDevice using a profile.
 the authored resource fields separate from the profile. Status is never merged
 into capabilities. Capacities are not inferred or summed from components.
 
-A Server may contain `spec.networkAdapters` and `spec.storageDevices`:
+A Server may contain `spec.networkAdapters` and `spec.storage`:
 
 ```yaml
 networkAdapters:
@@ -191,26 +193,28 @@ networkAdapters:
         macAddress: '02:00:00:00:02:01'
         capabilities:
           bandwidth: {value: 100, unit: Gbps}
-storageDevices:
-  - name: nvme0
-    pciAddress: '0000:42:00.0'
-    capacity: {value: 2, unit: TB}
-    medium: ssd
-    protocol: nvme
+storage:
+  devices:
+    - name: nvme0
+      pciAddress: '0000:42:00.0'
+      capacity: {value: 2, unit: TB}
+      medium: ssd
+      protocol: nvme
 ```
 
 A NetworkAdapter requires one or more interfaces. Adapter `manufacturer`, `model`,
 and `pciAddress` are optional. An Interface requires only a name and may declare
 `macAddress` and `capabilities.bandwidth`. An adapter is not itself a Link endpoint.
-Storage devices may declare `manufacturer`, `model`, `pciAddress`, `capacity`,
-`medium`, and `protocol`, using the same independent vocabularies as storage
-capabilities.
+Storage devices may declare `vendor`, `model`, `serial`, `pciAddress`, `capacity`,
+`medium`, `protocol`, `controllerRef`, and `location.bay`. Storage hardware is
+described further below; aggregate storage capabilities remain separate and
+are never inferred from components.
 
 PCI addresses have `[domain:]bus:device.function` hexadecimal syntax (device
 `00`–`1f`, function `0`–`7`); an omitted
 domain is treated as `0000` for duplicate detection. They must be unique across
-all adapter/storage components within one Server. Different Servers may reuse
-PCI addresses. MAC addresses use six colon-separated hexadecimal octets and must
+all adapters, storage controllers, and storage devices within one Server.
+Different Servers may reuse PCI addresses. MAC addresses use six colon-separated hexadecimal octets and must
 be unique across modeled Interfaces, ignoring case. Authored spellings are preserved.
 
 **NetworkDevice** requires `spec.siteRef` and may declare `profileRef`, `capabilities`,
@@ -266,8 +270,8 @@ spec:
 ```
 
 Every ClusterNode requires `name` and `realization.type` (`vm` or `baremetal`).
-Optional fields are `placement`, `requirements`, `roles`, `image`, and
-`networkAttachments`. `placement.siteRef` overrides the Cluster's `spec.siteRef`
+Optional fields are `placement`, `requirements`, `roles`, `image`,
+`networkAttachments`, and `configuration`. `placement.siteRef` overrides the Cluster's `spec.siteRef`
 default. Roles are unique strings with no execution semantics. The earlier
 node-level `nodeType`, `siteRef`, and `resourceRef` fields are not accepted.
 
@@ -322,8 +326,10 @@ The internal compatibility contract has three results:
 
 Missing capabilities, vCPU demand against physical inventory, and opaque
 requirement extensions yield UNKNOWN. Without an exact resource, site-only or
-unplaced intent remains valid, with one UNKNOWN warning per node; validation
-does not search for or require matching inventory.
+unplaced intent has one UNKNOWN placement warning per node; validation does not
+search for or require matching inventory. Authored storage sources still require
+existing inventory and receive additional UNKNOWN availability warnings without
+exact placement, as described in the storage configuration contract below.
 
 A successfully validated model is not necessarily proven deployable. Image
 compatibility, live availability, network reachability, allocation across nodes,
@@ -336,8 +342,10 @@ The processing pipeline is:
 
 1. Safely parse files; reject ambiguous/non-JSON-compatible YAML.
 2. Validate all source documents against the bundled schemas.
-3. Derive canonical IDs, enforce name uniqueness, and index embedded entities.
-4. Resolve references and check physical identity, IP membership, and exact placement.
+3. Derive canonical IDs, enforce name uniqueness, index embedded entities, and
+   expand documented local storage references.
+4. Resolve references and check physical identity, CPU topology, storage and
+   block-device configuration, IP membership, and exact placement.
 5. Construct topology lazily when requested.
 
 Files and documents need not be dependency ordered. Schema and semantic errors
@@ -349,8 +357,10 @@ invalid data or an incomplete graph from being returned. A successful immutable
 
 Normalized results add `id` to every entity and `kind` to embedded entities, leaving
 authored spec/status/extensions separate. Public query results are copies. Names,
-units, MAC/PCI spelling, and references retain authored representations; ID
-derivation and comparison-specific canonicalization are separate operations.
+units, and MAC/PCI spelling retain authored representations. Existing network
+and placement references already use canonical syntax. Local storage references
+expand to full canonical IDs in all normalized dictionary and graph views.
+Source inputs and opaque status/extensions are never mutated.
 
 ## Public construction API
 
@@ -379,6 +389,17 @@ ID. Edges preserve these meanings and directions:
 | `network_attachment` | ClusterNode → Network, keyed by attachment ID |
 | `terminates_at` | Link → each Interface endpoint |
 | `physical_link` | Interface → peer, in both directions, keyed by Link ID |
+| `has_storage_controller` | Server → StorageController |
+| `has_storage_device` | Server → StorageDevice |
+| `has_storage_volume` | Server → StorageVolume |
+| `controls` | StorageController → StorageDevice |
+| `provides` | StorageController → StorageVolume |
+| `uses_device` | StorageVolume → StorageDevice |
+| `configures` | ClusterNode → PartitionTable, PhysicalVolume, VolumeGroup, or LogicalVolume |
+| `uses_block_device` | PartitionTable → StorageDevice/StorageVolume; PhysicalVolume → Partition/StorageDevice/StorageVolume |
+| `has_partition` | PartitionTable → Partition |
+| `uses_pv` | VolumeGroup → PhysicalVolume |
+| `allocated_from` | LogicalVolume → VolumeGroup |
 
 `topology.nodes(kind=None)` returns normalized dictionaries;
 `topology.edges(relation=None)` returns dictionaries with `source`, `target`,
@@ -388,3 +409,255 @@ IDs; direction may be `out`, `in`, or `both`. `len(topology)` counts entities an
 `id in topology` tests membership. Neighbors collapse duplicate peers, while
 edge queries retain parallel connections. No logical connectivity is inferred
 from physical paths or vice versa.
+
+
+## CPU topology, SMT, and NUMA
+
+CPU fields are independently optional under `spec.capabilities.compute.cpu`.
+`vendor` and `model` are descriptive strings. Server inventory may record:
+
+```yaml
+compute:
+  cpu:
+    vendor: AMD
+    model: EPYC
+    sockets: 2
+    cores: 128
+    threads: 256
+    topology:
+      coresPerSocket: 64
+      threadsPerCore: 2
+    smt:
+      supported: true
+      enabled: true
+    numa:
+      mode: numa
+      nodesPerSocket: 4
+```
+
+`sockets` counts physical processor packages, `cores` total physical cores,
+`threads` total supported hardware execution threads, `coresPerSocket` physical
+cores per package, and `threadsPerCore` supported hardware threads per core.
+All counts are positive integers, including `threadsPerCore >= 1`.
+SMT is the generic term. `smt.supported` is hardware/platform capability and
+`smt.enabled` is current Server configuration. The validator checks:
+
+- `sockets * topology.coresPerSocket == cores` when all three are present.
+- `cores * topology.threadsPerCore == threads` when all three are present.
+- SMT enabled with explicit lack of support is UNSATISFIED; enabled with unknown
+  support is UNKNOWN. Counts never infer the enabled state.
+
+Disabling SMT does not reduce `threads` or change hardware-thread requirement
+comparisons. Those comparisons describe hardware capability, not OS-visible CPU
+counts or proof of runtime availability.
+
+NUMA mode is `numa` or `interleaved`; omission means unknown/not recorded.
+`nodesPerSocket` is a positive integer. `interleaved` needs neither a count nor
+nodes, and zero is never an interleaving sentinel. Generic counts 1, 2, and 4 may
+map to AMD NPS1, NPS2, and NPS4 in a future platform adapter; AMD NPS0 may map to
+`mode: interleaved`. These vendor terms are not core enum values.
+
+A supplied detailed `numa.nodes` list is a complete node inventory. Each record
+requires nonnegative integer `id` and `socket`; `cores` is an optional positive
+integer to allow unknown per-node counts, and `memory.capacity` is optional:
+
+```yaml
+nodes:
+  - id: 0
+    socket: 0
+    cores: 16
+    memory:
+      capacity: {value: 64, unit: GiB}
+```
+
+The excerpt shows one record, not the full eight-node inventory in the complete
+example. Numeric node IDs must be unique within the Server. Socket indices are
+zero-based and must be below `sockets`; unknown socket count produces UNKNOWN
+warnings. In `mode: numa`, a supplied nodes list must have exactly
+`sockets * nodesPerSocket` entries when both counts are known. If every node
+has a core count and the aggregate is known, node cores must sum to aggregate
+physical cores. NUMA memory totals need not equal Server memory in v0alpha1.
+No Linux logical CPU IDs, affinity masks, cpusets, or scheduler topology are modeled.
+
+HardwareProfile uses the same CPU hardware defaults, but only support fields for
+SMT/NUMA:
+
+```yaml
+compute:
+  cpu:
+    vendor: AMD
+    model: EPYC
+    smt: {supported: true}
+    numa: {supportedNodesPerSocket: [1, 2, 4]}
+```
+
+`enabled`, `mode`, `nodesPerSocket`, and detailed `nodes` are Server-only fields;
+profiles cannot claim an actual Server configuration. Effective CPU inventories
+are checked after recursive profile merging, and standalone profile aggregate
+counts/topology are checked too. Server values override defaults, lists replace,
+and omitted values inherit. Explicit support restrictions are also checked
+against the original profile: an instance cannot turn profile SMT unsupported
+into supported, advertise NUMA counts outside a profile support list, or select
+an unsupported count by overriding that list. Missing support information gives
+UNKNOWN when a configured state needs it. Mere omission does not invent capability
+or produce warnings for every possible missing optional field.
+
+## Storage hardware inventory
+
+`Server.spec.storage` contains optional `controllers`, `devices`, and `volumes`
+lists. Names are unique separately within each collection. These are physical
+hardware inventory/configuration; they are never inherited from a profile.
+`capabilities.storage` still describes an independently declared aggregate
+capability for placement, with no automatic summation.
+
+- **StorageController** requires `name`; optional `vendor`, `model`, `serial`,
+  `pciAddress`, and `mode` describe it. Modes are `raid`, `hba`, `jbod`, `other`.
+  There is no redundant controller `type` field.
+- **StorageDevice** requires `name`. Optional `controllerRef` selects a controller
+  in this Server. Optional `medium` (`hdd`, `ssd`, `other`) and `protocol`
+  (`nvme`, `sata`, `sas`, `scsi`, `virtio`, `other`) remain independent. Identity,
+  capacity, and nonnegative integer `location.bay` fields are optional.
+- **StorageVolume** requires `name` and `controllerRef`. It is a block device
+  provided by a controller, such as a hardware RAID virtual disk. Optional
+  `deviceRefs` lists member devices; `capacity` is declared, not calculated.
+  Optional `raid` requires `level`: `raid0`, `raid1`, `raid5`, `raid6`, `raid10`,
+  `raid50`, `raid60`, or `other`. Controller mode and volume RAID level describe
+  different dimensions; firmware mode/level policy is not inferred.
+
+Controller and device references accept names local to their Server or canonical
+IDs within that same Server. They must resolve. Duplicate member references
+are rejected after normalization, including a local and canonical spelling of
+the same device. Known controller conflicts between volume and device are errors;
+missing member controller information yields UNKNOWN warnings. There is no RAID
+capacity/parity math or controller configuration policy.
+
+## ClusterNode block-device configuration
+
+`ClusterNode.configuration.storage` is optional and contains `partitionTables`
+and optional `lvm`. This physical-source configuration supports bare-metal nodes;
+VM storage/VM NUMA is deferred. Every referenced hardware block source must exist.
+For exact placement, its owning Server must equal `placement.resourceRef`.
+Without exact placement, source existence is checked but availability to the node
+is UNKNOWN; the validator does not infer placement from a storage reference.
+A PV that references a local partition uses that table’s checked hardware source.
+Cross-node partition/PV/VG references are always invalid, even if both nodes
+select the same Server.
+
+A partition table requires `name`, `sourceRef`, `type` (`gpt` or `mbr`), and a
+nonempty ordered `partitions` list. Optional `alignment` is a byte quantity.
+There is no table type `none`; whole-device PVs do not require a partition table.
+The source must be `server/<server>/storage-volume/<volume>` or
+`server/<server>/storage-device/<device>`.
+
+A partition requires `name`, `type`, and either `size: {value, unit}` or
+`grow: true`, but never both. `grow: false` is permitted with fixed size and is
+not a substitute for size. At most one partition per table may grow. Names and
+supplied positive integer `number` values must be unique within the table.
+Numbers may be omitted for later deterministic assignment; the normalizer keeps
+list order and does not assign numbers or sectors.
+
+Partition `type` is the block classification: `efi-system`, `bios-boot`,
+`linux-filesystem`, `linux-lvm`, `linux-swap`, `linux-raid`, or `other`.
+Optional `role` is semantic intent: `efi`, `boot`, `root`, `swap`, `lvm`, `data`,
+or `other`. Neither field selects a filesystem or mount point. An optional
+nonempty `typeId` supplies an exact uncommon GPT GUID/MBR identifier only when
+`type: other`; v0alpha1 preserves it without platform-specific parsing.
+
+LVM contains three optional collections, with names unique within each collection
+across the ClusterNode:
+
+- **PhysicalVolume** requires `name` and `sourceRef`. Sources are a local
+  partition (`partition-table/<table>/partition/<partition>`), its canonical
+  ID, a hardware storage volume, or a raw storage device. Each exact normalized
+  source may be assigned to only one PV in the node.
+- **VolumeGroup** requires `name` and nonempty `physicalVolumeRefs` resolving to
+  PVs in the same node. References may be local PV names or full canonical IDs.
+  Duplicate references are invalid, and a PV may belong to at most one VG.
+- **LogicalVolume** requires `name`, `volumeGroupRef`, and either
+  `capacity: {value, unit}` or `grow: true`, exclusively. The VG reference is
+  local by name or canonical within the node. At most one LV per VG may grow;
+  different VGs may each have a grow LV. LV names are unique across the node,
+  not merely within each VG.
+
+The validator does not calculate allocation sizes, partition boundaries, RAID
+capacity, or LVM extents. Shared use of hardware sources across partition tables,
+RAID membership, or whole-device consumers is not a provisioning/exclusivity
+check in this pass. Exact-source PV uniqueness is enforced as described above.
+
+## Storage identities and reference normalization
+
+The existing `storage-device` segment is retained. New canonical identities are:
+
+| Kind | Canonical ID |
+| --- | --- |
+| StorageController | `server/<server>/storage-controller/<name>` |
+| StorageDevice | `server/<server>/storage-device/<name>` |
+| StorageVolume | `server/<server>/storage-volume/<name>` |
+| PartitionTable | `cluster/<cluster>/node/<node>/storage/partition-table/<name>` |
+| Partition | `cluster/<cluster>/node/<node>/storage/partition-table/<table>/partition/<name>` |
+| PhysicalVolume | `cluster/<cluster>/node/<node>/storage/lvm/pv/<name>` |
+| VolumeGroup | `cluster/<cluster>/node/<node>/storage/lvm/vg/<name>` |
+| LogicalVolume | `cluster/<cluster>/node/<node>/storage/lvm/lv/<name>` |
+
+`storage` and `lvm` are grouping paths, not extra graph entities. Named objects
+retain `contains` edges to their Server, ClusterNode, or partition table and also
+have the semantic edges listed in the topology contract above. No second graph
+API or exposed NetworkX representation is introduced. Names retain their exact
+spelling (`vg_system` is not rewritten as `vg-system`).
+
+Local references are expanded only in their documented field-specific scope.
+There is no basename search, cross-scope fallback, or traversal syntax. Full
+canonical references are also checked for correct kind and local ownership.
+Source YAML and input dictionaries remain untouched; normalized results include
+canonical references. Files and collection entries need not be dependency ordered.
+Duplicate reference checks run after canonicalization.
+
+New semantic diagnostic codes include `cpu_topology`, `duplicate_numa_id`,
+`numa_socket`, `numa_node_count`, `numa_core_count`, `reference_scope`,
+`duplicate_reference`, `storage_controller_conflict`, `storage_placement`,
+`invalid_storage_configuration`, `duplicate_partition_number`, `multiple_grow`,
+`duplicate_pv_source`, and `pv_multiple_vgs`. Existing `schema`,
+`duplicate_component_name`, `unresolved_reference`, `incompatible_resource`,
+and `unevaluated_requirement` conventions continue to apply.
+
+## Filesystem policy boundary
+
+The [complete bare-metal example](../examples/baremetal/infrastructure.yaml)
+includes an EFI-classified partition, boot-role partition, LVM partition,
+controller-volume and raw-device PVs, VGs, fixed-size LVs, and grow LVs.
+It deliberately stops at the block-device/LVM layer.
+
+A conventional later configuration policy might choose:
+
+| Block object | Filesystem | Mount point |
+| --- | --- | --- |
+| `lv_root` | XFS | `/` |
+| `lv_var` | XFS | `/var` |
+| `lv_home` | XFS | `/home` |
+| `boot` | XFS | `/boot` |
+| `efi` | vfat | `/boot/efi` |
+
+This is documentation of a possible future Ansible/Nix policy, not schema data
+or an implicit default. Filesystem creation, formatting, mount points, fstab,
+and NixOS filesystem declarations remain outside the infrastructure core.
+All additional deferred features are listed in [decisions.md](decisions.md#intentionally-deferred).
+
+## Source-model migration
+
+This remains v0alpha1 with clean schema corrections and no deprecated aliases:
+
+| Previous source field | Current source field |
+| --- | --- |
+| `spec.capabilities.compute.sockets: {value: 2, unit: socket}` | `spec.capabilities.compute.cpu.sockets: 2` |
+| `spec.capabilities.compute.cores: {value: 128, unit: core}` | `spec.capabilities.compute.cpu.cores: 128` |
+| `spec.capabilities.compute.threads: {value: 256, unit: thread}` | `spec.capabilities.compute.cpu.threads: 256` |
+| `Server.spec.storageDevices` | `Server.spec.storage.devices` |
+| StorageDevice `manufacturer` | StorageDevice `vendor` |
+
+CPU changes apply wherever inventory capabilities are authored, including
+profiles and NetworkDevices. `compute.architecture`, `compute.frequency`,
+CPU requirement `{count, unit}`, aggregate `capabilities.storage`, and other
+manufacturer fields retain their existing shapes. Old source shapes are rejected.
+Existing canonical IDs and relations are retained; storage identity/relationship
+additions and local-reference normalization are described above. No migration
+command, source writer, provider adapter, or schema-version change is introduced.

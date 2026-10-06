@@ -18,8 +18,9 @@ spec:
     nodeTypes: [baremetal, vm]
     compute:
       architecture: x86_64
-      cores: {value: 64, unit: core}
-      threads: {value: 128, unit: thread}
+      cpu:
+        cores: 64
+        threads: 128
     memory:
       capacity: {value: 512, unit: GiB}
     storage:
@@ -47,12 +48,13 @@ spec:
           macAddress: '02:00:00:00:02:02'
           capabilities:
             bandwidth: {value: 100, unit: Gbps}
-  storageDevices:
-    - name: nvme0
-      pciAddress: '0000:42:00.0'
-      capacity: {value: 2, unit: TB}
-      medium: ssd
-      protocol: nvme
+  storage:
+    devices:
+      - name: nvme0
+        pciAddress: '0000:42:00.0'
+        capacity: {value: 2, unit: TB}
+        medium: ssd
+        protocol: nvme
 ---
 apiVersion: infra.model/v0alpha1
 kind: NetworkDevice

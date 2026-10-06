@@ -6,7 +6,7 @@ from infra_model import InfrastructureModel, ValidationError
 from conftest import ROOT
 
 
-@pytest.mark.parametrize("directory,count", [("examples", 12), ("examples/amst", 5), ("examples/chameleon-like", 3), ("examples/fabric-like", 4)])
+@pytest.mark.parametrize("directory,count", [("examples", 16), ("examples/baremetal", 4), ("examples/amst", 5), ("examples/chameleon-like", 3), ("examples/fabric-like", 4)])
 def test_examples_validate(directory, count):
     model = InfrastructureModel.load(ROOT / directory)
     report = model.validate()
@@ -19,15 +19,15 @@ def test_examples_validate(directory, count):
 def test_public_api_and_embedded_identities():
     model = InfrastructureModel.load(ROOT / "examples")
     assert model.get("server/amst-w2")["kind"] == "Server"
-    assert len(model.servers()) == 2
+    assert len(model.servers()) == 3
     assert len(model.networks()) == 2
     interface = model.get("server/amst-w2/network-adapter/slot2/interface/p1")
     assert interface["kind"] == "Interface"
     node = model.get("cluster/openstack-lab/node/controller-1")
     assert node["kind"] == "ClusterNode"
-    assert len(model.documents) == 12
+    assert len(model.documents) == 16
     assert all(doc["kind"] != "ClusterNode" for doc in model.documents)
-    assert len(model.topology) == model.validate().entity_count == 25
+    assert len(model.topology) == model.validate().entity_count == 55
     with pytest.raises(KeyError):
         model.get("server/missing")
 
@@ -74,20 +74,27 @@ def test_profile_defaults_merge_without_inheriting_status_or_components(document
     profile["status"] = {"availability": "unavailable", "extensions": {"example.org/observation": {"value": 1}}}
     profile["spec"]["capabilities"]["extensions"] = {"example.org/defaults": {"keep": "inherited", "replace": [1, 2], "mapping": {"a": 1, "b": 2}}}
     server = inventory["Server/amst-w2"]
-    server["spec"]["capabilities"] = {"nodeTypes": ["baremetal"], "compute": {"cores": {"value": 32, "unit": "core"}}, "extensions": {"example.org/defaults": {"replace": [3], "mapping": {"a": 9}}}}
+    server["spec"]["capabilities"] = {"nodeTypes": ["baremetal"], "compute": {"cpu": {"cores": 32}}, "extensions": {"example.org/defaults": {"replace": [3], "mapping": {"a": 9}}}}
     model = InfrastructureModel.from_documents(documents)
     effective = model.effective_capabilities("server/amst-w2")
     assert effective["nodeTypes"] == ["baremetal"]
-    assert effective["compute"]["cores"]["value"] == 32
-    assert effective["compute"]["threads"]["value"] == 128
+    assert effective["compute"]["cpu"]["cores"] == 32
+    assert effective["compute"]["cpu"]["threads"] == 128
     assert effective["extensions"]["example.org/defaults"] == {"keep": "inherited", "replace": [3], "mapping": {"a": 9, "b": 2}}
     assert "status" not in model.get("server/amst-w2")
-    assert model.get("server/amst-w2")["spec"]["storageDevices"][0]["name"] == "nvme0"
-    assert profile["spec"]["capabilities"]["compute"]["cores"]["value"] == 64
+    assert model.get("server/amst-w2")["spec"]["storage"]["devices"][0]["name"] == "nvme0"
+    assert profile["spec"]["capabilities"]["compute"]["cpu"]["cores"] == 64
 
 
-@pytest.mark.parametrize("override", [None, {"cores": None}, {"cores": {"value": 2}}])
-def test_no_unset_or_partial_quantity_overlay(documents, inventory, override):
+@pytest.mark.parametrize("override", [None, {"cpu": None}, {"cpu": {"cores": None}}])
+def test_no_unset_cpu_overlay(documents, inventory, override):
     inventory["Server/amst-w2"]["spec"]["capabilities"] = {"compute": override}
+    with pytest.raises(ValidationError):
+        InfrastructureModel.from_documents(documents).validate()
+
+
+@pytest.mark.parametrize('override', [None, {'capacity': None}, {'capacity': {'value': 2}}])
+def test_no_unset_or_partial_quantity_overlay(documents, inventory, override):
+    inventory['Server/amst-w2']['spec']['capabilities'] = {'memory': override}
     with pytest.raises(ValidationError):
         InfrastructureModel.from_documents(documents).validate()

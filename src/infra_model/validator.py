@@ -46,7 +46,10 @@ def _compare_cpu(required: dict, compute: dict, realization: str) -> _Compatibil
     if realization != "baremetal" or required["unit"] == "vcpu":
         return _Compatibility.UNKNOWN
     field = {"core": "cores", "thread": "threads"}[required["unit"]]
-    return _compare({"value": required["count"], "unit": required["unit"]}, compute.get(field))
+    actual = compute.get("cpu", {}).get(field)
+    if actual is None:
+        return _Compatibility.UNKNOWN
+    return _Compatibility.SATISFIED if actual >= required["count"] else _Compatibility.UNSATISFIED
 
 
 class SemanticValidator:
@@ -105,6 +108,7 @@ class SemanticValidator:
             elif entry.kind == "NetworkAttachment":
                 self._attachment(entry)
             elif entry.kind == "ClusterNode":
+                self._storage_configuration(entry)
                 placement = data.get("placement", {})
                 if "siteRef" in placement:
                     self._resolve(entry, placement["siteRef"], "Site", "/placement/siteRef")
@@ -119,9 +123,172 @@ class SemanticValidator:
                     self._result(entry, _Compatibility.UNKNOWN,
                                  "no exact inventory resource selected; site-only or unplaced intent does not prove compatibility",
                                  "/realization")
+            elif entry.kind in {"Server", "HardwareProfile", "NetworkDevice"}:
+                self._cpu_inventory(entry)
+            elif entry.kind in {"StorageDevice", "StorageVolume"}:
+                self._storage_hardware(entry)
         if self.issues:
             raise ValidationError(self.issues)
         return tuple(self.warnings)
+
+    def _cpu_inventory(self, entry: Entry) -> None:
+        spec = entry.data["spec"]
+        capabilities = (spec.get("capabilities", {}) if entry.kind == "HardwareProfile"
+                        else self.registry.effective_capabilities(entry))
+        cpu = capabilities.get("compute", {}).get("cpu", {})
+        path = "/spec/capabilities/compute/cpu"
+        topology = cpu.get("topology", {})
+        for aggregate, count, per in [("cores", "sockets", "coresPerSocket"),
+                                       ("threads", "cores", "threadsPerCore")]:
+            if aggregate in cpu and count in cpu and per in topology:
+                if cpu[count] * topology[per] != cpu[aggregate]:
+                    self._issue(entry, "cpu_topology", f"{count} * {per} must equal {aggregate} in effective CPU inventory", path + "/topology/" + per)
+        smt = cpu.get("smt", {})
+        if smt.get("enabled") is True:
+            result = (_Compatibility.UNKNOWN if "supported" not in smt else
+                      _Compatibility.SATISFIED if smt["supported"] else _Compatibility.UNSATISFIED)
+            self._result(entry, result, "SMT enabled requires SMT support", path + "/smt/enabled")
+        numa = cpu.get("numa", {})
+        selected = numa.get("nodesPerSocket")
+        supported = numa.get("supportedNodesPerSocket")
+        if selected is not None:
+            result = (_Compatibility.UNKNOWN if supported is None else
+                      _Compatibility.SATISFIED if selected in supported else _Compatibility.UNSATISFIED)
+            self._result(entry, result, "NUMA nodesPerSocket must be supported by the platform", path + "/numa/nodesPerSocket")
+        # Instance values override defaults, but cannot erase explicit profile
+        # support restrictions. Check these against the original profile too.
+        profile = self.registry.entries.get(spec.get("profileRef"))
+        if profile and profile.kind == "HardwareProfile":
+            profile_cpu = profile.data["spec"]["capabilities"].get("compute", {}).get("cpu", {})
+            if profile_cpu.get("smt", {}).get("supported") is False and smt.get("supported") is True:
+                self._result(entry, _Compatibility.UNSATISFIED, "Server SMT support contradicts HardwareProfile", path + "/smt/supported")
+            profile_nodes = profile_cpu.get("numa", {}).get("supportedNodesPerSocket")
+            if profile_nodes is not None and supported is not None and any(n not in profile_nodes for n in supported):
+                self._result(entry, _Compatibility.UNSATISFIED, "Server NUMA support contradicts HardwareProfile", path + "/numa/supportedNodesPerSocket")
+            if profile_nodes is not None and selected is not None and selected not in profile_nodes and supported != profile_nodes:
+                self._result(entry, _Compatibility.UNSATISFIED, "NUMA configuration contradicts HardwareProfile support", path + "/numa/nodesPerSocket")
+        nodes = numa.get("nodes")
+        if nodes is None:
+            return
+        ids = set()
+        sockets = cpu.get("sockets")
+        for index, node in enumerate(nodes):
+            node_path = f"{path}/numa/nodes/{index}"
+            if node["id"] in ids:
+                self._issue(entry, "duplicate_numa_id", "NUMA node IDs must be unique within the Server", node_path + "/id")
+            ids.add(node["id"])
+            if sockets is None:
+                self._result(entry, _Compatibility.UNKNOWN, "socket count is unknown; cannot verify NUMA socket index", node_path + "/socket")
+            elif node["socket"] >= sockets:
+                self._issue(entry, "numa_socket", "NUMA socket index must be less than physical socket count", node_path + "/socket")
+        if numa.get("mode") == "numa" and sockets is not None and selected is not None:
+            if len(nodes) != sockets * selected:
+                self._issue(entry, "numa_node_count", "complete NUMA node count must equal sockets * nodesPerSocket", path + "/numa/nodes")
+        if "cores" in cpu and all("cores" in node for node in nodes):
+            if sum(node["cores"] for node in nodes) != cpu["cores"]:
+                self._issue(entry, "numa_core_count", "NUMA node cores must sum to aggregate physical cores", path + "/numa/nodes")
+
+    def _same_parent(self, entry: Entry, reference: str, kind: str, path: str) -> Entry | None:
+        target = self._resolve(entry, reference, kind, path)
+        if target and target.parent != entry.parent:
+            self._issue(entry, "reference_scope", f"{reference!r} must belong to {entry.parent}", path)
+            return None
+        return target
+
+    def _unique_refs(self, entry: Entry, field: str) -> None:
+        seen = set()
+        for index, reference in enumerate(entry.data.get(field, [])):
+            if reference in seen:
+                self._issue(entry, "duplicate_reference", f"duplicate reference {reference!r}", f"/{field}/{index}")
+            seen.add(reference)
+
+    def _storage_hardware(self, entry: Entry) -> None:
+        data = entry.data
+        if "controllerRef" in data:
+            self._same_parent(entry, data["controllerRef"], "StorageController", "/controllerRef")
+        if entry.kind != "StorageVolume":
+            return
+        self._unique_refs(entry, "deviceRefs")
+        for index, reference in enumerate(data.get("deviceRefs", [])):
+            path = f"/deviceRefs/{index}"
+            device = self._same_parent(entry, reference, "StorageDevice", path)
+            if device:
+                controller = device.data.get("controllerRef")
+                if controller is None:
+                    self._result(entry, _Compatibility.UNKNOWN, f"controller of {reference} is not recorded", path)
+                elif controller != data["controllerRef"]:
+                    self._issue(entry, "storage_controller_conflict", "volume and member device must use the same controller", path)
+
+    def _block_source(self, entry: Entry, node: Entry) -> Entry | None:
+        reference = entry.data["sourceRef"]
+        target = self.registry.entries.get(reference)
+        kinds = {"StorageDevice", "StorageVolume"}
+        if entry.kind == "PhysicalVolume":
+            kinds.add("Partition")
+        if target is None:
+            self._issue(entry, "unresolved_reference", f"{reference!r} does not resolve to a block-device source", "/sourceRef")
+            return None
+        if target.kind not in kinds:
+            self._issue(entry, "reference_kind", f"{reference!r} is not a supported block-device source", "/sourceRef")
+            return None
+        if target.kind == "Partition":
+            if self.registry.entries[target.parent].parent != node.id:
+                self._issue(entry, "reference_scope", "partition source must belong to this ClusterNode", "/sourceRef")
+        else:
+            selected = node.data.get("placement", {}).get("resourceRef")
+            if selected is None:
+                self._result(entry, _Compatibility.UNKNOWN, "no exact Server placement; block-device availability cannot be proven", "/sourceRef")
+            elif target.parent != selected:
+                self._issue(entry, "storage_placement", f"{reference!r} does not belong to selected Server {selected}", "/sourceRef")
+        return target
+
+    def _storage_configuration(self, node: Entry) -> None:
+        storage = node.data.get("configuration", {}).get("storage")
+        if storage is None:
+            return
+        if node.data["realization"]["type"] != "baremetal":
+            self._issue(node, "invalid_storage_configuration", "physical block-device configuration requires baremetal realization", "/configuration/storage")
+        for table_data in storage.get("partitionTables", []):
+            table = self.registry.entries[table_data["id"]]
+            self._block_source(table, node)
+            numbers = set()
+            growing = False
+            for index, partition in enumerate(table_data["partitions"]):
+                if "number" in partition:
+                    if partition["number"] in numbers:
+                        self._issue(table, "duplicate_partition_number", "partition numbers must be unique within a table", f"/partitions/{index}/number")
+                    numbers.add(partition["number"])
+                if partition.get("grow") is True:
+                    if growing:
+                        self._issue(table, "multiple_grow", "at most one grow partition per table", f"/partitions/{index}/grow")
+                    growing = True
+        lvm = storage.get("lvm", {})
+        sources = set()
+        for data in lvm.get("physicalVolumes", []):
+            pv = self.registry.entries[data["id"]]
+            self._block_source(pv, node)
+            if data["sourceRef"] in sources:
+                self._issue(pv, "duplicate_pv_source", "a block-device source may be assigned to only one PV per node", "/sourceRef")
+            sources.add(data["sourceRef"])
+        assigned = {}
+        for data in lvm.get("volumeGroups", []):
+            vg = self.registry.entries[data["id"]]
+            self._unique_refs(vg, "physicalVolumeRefs")
+            for index, reference in enumerate(data["physicalVolumeRefs"]):
+                path = f"/physicalVolumeRefs/{index}"
+                self._same_parent(vg, reference, "PhysicalVolume", path)
+                if reference in assigned and assigned[reference] != vg.id:
+                    self._issue(vg, "pv_multiple_vgs", f"PV already assigned to {assigned[reference]}", path)
+                assigned[reference] = vg.id
+        growing = set()
+        for data in lvm.get("logicalVolumes", []):
+            lv = self.registry.entries[data["id"]]
+            reference = data["volumeGroupRef"]
+            self._same_parent(lv, reference, "VolumeGroup", "/volumeGroupRef")
+            if data.get("grow") is True:
+                if reference in growing:
+                    self._issue(lv, "multiple_grow", "at most one grow LV per VG", "/grow")
+                growing.add(reference)
 
     def _attachment(self, entry: Entry) -> None:
         network = self._resolve(entry, entry.data["networkRef"], "Network", "/networkRef")

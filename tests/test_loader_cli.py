@@ -101,7 +101,7 @@ def test_in_memory_cycle_rejected():
 def test_cli_success(capsys):
     assert main(["validate", str(ROOT / "examples")]) == 0
     captured = capsys.readouterr()
-    assert captured.out == "Valid: 12 documents, 25 entities, 2 warnings\n"
+    assert captured.out == "Valid: 16 documents, 55 entities, 2 warnings\n"
     assert captured.err.count("UNKNOWN") == 2
 
 
@@ -146,4 +146,4 @@ def test_installed_entrypoints_from_outside_repo(tmp_path, entrypoint):
     env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
     result = subprocess.run([*command, "validate", str(ROOT / "examples")], cwd=tmp_path, env=env, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-    assert "12 documents" in result.stdout
+    assert "16 documents" in result.stdout

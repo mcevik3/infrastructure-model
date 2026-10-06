@@ -16,8 +16,9 @@ spec:
     nodeTypes: [baremetal, vm]
     compute:
       architecture: x86_64
-      cores: {value: 48, unit: core}
-      threads: {value: 96, unit: thread}
+      cpu:
+        cores: 48
+        threads: 96
       frequency: {value: 2.4, unit: GHz}
     memory:
       capacity: {value: 192, unit: GiB}

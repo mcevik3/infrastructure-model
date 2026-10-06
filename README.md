@@ -22,7 +22,7 @@ python -m pytest
 Expected example result:
 
 ```text
-Valid: 12 documents, 25 entities, 2 warnings
+Valid: 16 documents, 55 entities, 2 warnings
 ```
 
 The two FABRIC-like VM nodes produce UNKNOWN warnings because site placement
@@ -58,7 +58,7 @@ failures raise `ValidationError` with structured `.issues`; malformed YAML and
 unreadable input raise `LoadError`. A successful report's `.warnings` identifies
 checks that lack generic evidence (UNKNOWN). Known satisfied requirements are
 SATISFIED; known failures are UNSATISFIED errors. Unplaced intent is valid without
-matching inventory, with an UNKNOWN warning per node. Successful validation does
+matching inventory, with an UNKNOWN placement warning per node. Successful validation does
 not prove deployability.
 
 Returned resources are defensive copies of normalized dictionaries, with
@@ -80,6 +80,7 @@ Examples are illustrative, not discovered inventories or provider adapter output
 | --- | --- |
 | [chameleon-like](examples/chameleon-like/inventory.yaml) | UC, compute-cascadelake-r, P3-CPU-004 |
 | [amst](examples/amst/inventory.yaml) | AMST, Dell R7525 profile, amst-w2, switch, physical Link |
+| [baremetal](examples/baremetal/infrastructure.yaml) | Dual-socket EPYC, SMT/NUMA, controller/disks/RAID volumes, GPT and LVM with exact bare-metal placement |
 | [fabric-like](examples/fabric-like/cluster.yaml) | Site, management/storage Networks, Rocky Linux VM nodes, roles, static IPv4 attachments |
 
 Each example directory also validates independently. Inventory capacities and
@@ -104,3 +105,22 @@ express physical demand). `placement.resourceRef` selects an existing Server
 only for bare metal. VMs use site placement and requirements; physical cores
 do not prove vCPU capacity. Storage uses independent optional `medium` and
 `protocol` fields. Provider observations belong in `status.extensions`.
+
+Server CPU inventory lives under `spec.capabilities.compute.cpu`: integer
+`sockets`, total physical `cores`, and total supported hardware `threads`, plus
+optional `topology`, `smt`, and `numa`. Disabling SMT does not change `threads`.
+Profiles provide defaults and CPU support information; Server state is authoritative.
+
+Hardware storage lives under `Server.spec.storage` (`controllers`, `devices`,
+`volumes`). Block-device intent lives under `ClusterNode.configuration.storage`
+(`partitionTables`, optional `lvm`). Local references normalize to canonical IDs,
+and the topology exposes controller, device, partition, PV, VG, and LV relationships.
+Filesystem and mount-point policy is deliberately outside v0alpha1; the core
+stops at block devices and LVM.
+
+This alpha evolution removes the old `spec.storageDevices` collection and moves
+inventory CPU counts from `compute.{sockets,cores,threads}: {value, unit}` to
+`compute.cpu.{sockets,cores,threads}: <integer>`. Storage device `manufacturer`
+is now `vendor`; other component/profile manufacturer fields are unchanged.
+See the [migration notes](docs/model-v0alpha1.md#source-model-migration) for the
+complete compatibility and canonical identity contract.

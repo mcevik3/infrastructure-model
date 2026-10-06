@@ -53,18 +53,18 @@ def test_node_type_and_site_incompatibility(placed):
 
 def test_server_overrides_profile_leaves(placed):
     documents, inventory, node = placed
-    inventory["Server/amst-w2"]["spec"]["capabilities"] = {"compute": {"cores": {"value": 2, "unit": "core"}}}
+    inventory["Server/amst-w2"]["spec"]["capabilities"] = {"compute": {"cpu": {"cores": 2}}}
     with pytest.raises(ValidationError):
         InfrastructureModel.from_documents(documents).validate()
     node["requirements"]["compute"]["cpu"]["count"] = 2
     model = InfrastructureModel.from_documents(documents)
     assert not model.validate().warnings
     assert model.effective_capabilities("server/amst-w2")["compute"] == {
-        "architecture": "x86_64", "cores": {"value": 2, "unit": "core"}, "threads": {"value": 128, "unit": "thread"},
+        "architecture": "x86_64", "cpu": {"cores": 2, "threads": 128},
     }
     caps = model.effective_capabilities("server/amst-w2")
-    caps["compute"]["cores"]["value"] = 999
-    assert model.effective_capabilities("server/amst-w2")["compute"]["cores"]["value"] == 2
+    caps["compute"]["cpu"]["cores"] = 999
+    assert model.effective_capabilities("server/amst-w2")["compute"]["cpu"]["cores"] == 2
 
 
 @pytest.mark.parametrize("available,required,valid", [
@@ -224,13 +224,13 @@ def test_compatibility_three_results():
     assert _compare({"value": 1, "unit": "GiB"}, {"value": 1024, "unit": "MiB"}) is _Compatibility.SATISFIED
     assert _compare("ssd", "hdd") is _Compatibility.UNSATISFIED
     assert _compare("ssd", None) is _Compatibility.UNKNOWN
-    assert _compare_cpu({"count": 4, "unit": "core"}, {"cores": {"value": 64, "unit": "core"}}, "vm") is _Compatibility.UNKNOWN
+    assert _compare_cpu({"count": 4, "unit": "core"}, {"cpu": {"cores": 64}}, "vm") is _Compatibility.UNKNOWN
 
 
 @pytest.mark.parametrize("unit,field", [("core", "cores"), ("thread", "threads")])
 def test_missing_physical_cpu_dimension_is_unknown(placed, unit, field):
     documents, inventory, node = placed
-    inventory["HardwareProfile/dell-r7525"]["spec"]["capabilities"]["compute"].pop(field)
+    inventory["HardwareProfile/dell-r7525"]["spec"]["capabilities"]["compute"]["cpu"].pop(field)
     node["requirements"]["compute"]["cpu"] = {"count": 4, "unit": unit}
     report = InfrastructureModel.from_documents(documents).validate()
     assert len(report.warnings) == 1

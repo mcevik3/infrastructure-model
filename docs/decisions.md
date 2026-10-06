@@ -26,18 +26,18 @@ is provisional; this pass establishes no permanent organizational namespace.
 | Topic | Implemented behavior | Review question |
 | --- | --- | --- |
 | Envelope | `apiVersion: infra.model/v0alpha1`, `kind`, `metadata`, `spec`; optional `status` and `extensions` | Confirm version spelling and field names against any earlier design. |
-| Reference syntax | Full canonical IDs with case-sensitive names; paths use kind-specific segments | Confirm case sensitivity and allowed name characters. |
-| Embedded fields | `networkAdapters`, `interfaces`, `storageDevices`, `nodes`, `networkAttachments`; embedded entities have `name` directly | Confirm field shapes; embedded objects do not add another `metadata/spec` envelope. |
+| Reference syntax | Canonical IDs with case-sensitive names; documented storage-local syntax expands deterministically | Confirm case sensitivity and allowed name characters. |
+| Embedded fields | `networkAdapters`, `interfaces`, `storage.{controllers,devices,volumes}`, `nodes`, `networkAttachments`, and node partition/LVM collections; named embedded entities have `name` directly | Confirm field shapes; embedded objects do not add another `metadata/spec` envelope. |
 | Component uniqueness | Names unique within each collection under a parent; adapter/storage names may coincide | Canonical IDs retain kind-specific segments, including the existing `storage-device` segment. |
 | Profile inheritance | Profile capabilities supply defaults; actual resource values are authoritative. Mappings merge recursively, lists replace, omitted values inherit | Components/status are not inherited. No delete/unset operation or partial quantity overlay is provided. |
 | Exact resource placement | `placement.resourceRef` selects an existing `server/<name>` only for `realization.type: baremetal` | VM exact references are rejected. VM host affinity may use namespaced extensions pending a future generic concept. |
 | Realization | `realization.type` is `vm` or `baremetal`; inventory `capabilities.nodeTypes` uses the same spellings | Explicit inventory advertisement is retained; Server type alone does not imply allocatability. Node-level legacy placement/type fields are rejected. |
-| CPU semantics | Inventory sockets/cores/threads are physical. Requirements use `compute.cpu: {count, unit}` with `vcpu`, `core`, or `thread` | Only exact bare-metal core/thread comparison is supported. Physical inventory never proves vCPU capacity; allocation/overcommit evidence is outside this version. |
-| Storage vocabulary | Independent optional `medium` and `protocol`; NVMe SSD is `ssd` plus `nvme` | `media` and `mixed` are removed. Unknown composition is omitted. No storage topology expansion. |
-| Compatibility | SATISFIED proves a requirement is met; UNSATISFIED proves it is not; UNKNOWN lacks enough generic evidence | Known failures are errors; UNKNOWN yields warnings. Site-only/unplaced nodes get one UNKNOWN warning each; successful validation is not proof of deployability. |
+| CPU semantics | Integer inventory `compute.cpu.sockets/cores/threads` describe physical packages/cores and supported hardware threads. SMT enabled state is separate. Requirements use `compute.cpu: {count, unit}` with `vcpu`, `core`, or `thread` | Only exact bare-metal core/thread comparison is supported. Physical inventory never proves vCPU capacity; allocation/overcommit evidence is outside this version. |
+| Storage vocabulary | Independent optional `medium` and `protocol`; NVMe SSD is `ssd` plus `nvme` | `media` and `mixed` are removed. Unknown composition is omitted. Hardware controllers/devices/volumes now form explicit topology, with node partition/LVM intent separate. |
+| Compatibility | SATISFIED proves a requirement is met; UNSATISFIED proves it is not; UNKNOWN lacks enough generic evidence | Known failures are errors; UNKNOWN yields warnings. Site-only/unplaced nodes get one UNKNOWN placement warning each; storage sources may add availability warnings; successful validation is not proof of deployability. |
 | Placement scope | Compare each node independently; no capacity subtraction, reservations, or exclusive bare-metal binding | Confirm later admission/allocation policy separately from this static model. |
-| Quantities | SI and IEC byte units; integral physical sockets/cores/threads and explicit CPU requirement counts; frequency and bandwidth units; all values strictly positive | Confirm whether zero quantities, alternate spellings, overcommit ratios, or fractional CPU requests are needed later. |
-| PCI scope | Uniqueness within a Server across adapters and storage devices; absent domain means `0000`; hex is case-insensitive | A global uniqueness check would incorrectly reject ordinary PCI address reuse on different machines. |
+| Quantities | SI and IEC byte units; positive integer physical CPU counts and explicit CPU requirement counts; frequency and bandwidth units; all values strictly positive | Confirm whether zero quantities, alternate spellings, overcommit ratios, or fractional CPU requests are needed later. |
+| PCI scope | Uniqueness within a Server across adapters, storage controllers, and storage devices; absent domain means `0000`; hex is case-insensitive | A global uniqueness check would incorrectly reject ordinary PCI address reuse on different machines. |
 | MAC scope | Uniqueness across every modeled inventory Interface, case-insensitive | Intentional shared virtual/anycast MACs are outside this physical inventory pass. |
 | Address shape | Attachment `addresses` are plain IPv4/IPv6 literals; Network `prefixes` use strict CIDR prefix-length notation, rejecting dotted netmasks/hostmasks | Confirm whether future addresses should include per-address metadata or allocation modes. |
 | Network prefix semantics | An address must belong to a prefix of its referenced Network; an address with no declared prefix fails | Overlapping prefixes, duplicate IPs, gateways, reserved/broadcast addresses, and routing policies are not validated. |
@@ -82,16 +82,79 @@ formats for equivalent address/prefix syntax checks and still need semantic chec
 Observation `date-time` checking is also local, without an optional dependency;
 timezones are required and leap seconds are unsupported.
 
+## CPU topology and storage extension decisions
+
+The existing capabilities envelope is retained. Inventory counts move to
+`spec.capabilities.compute.cpu` as integers; `compute.architecture` and
+`compute.frequency` remain in place. Profiles may supply hardware defaults,
+SMT support, and `numa.supportedNodesPerSocket`, but cannot claim configured
+`smt.enabled`, `numa.mode`, `numa.nodesPerSocket`, or detailed NUMA nodes.
+Server effective CPU values are validated after the existing recursive merge.
+Instance overrides cannot hide explicit profile support restrictions. Missing
+support evidence gives UNKNOWN, not invented capability.
+
+`threads` always means processor-supported hardware execution threads. It never
+means OS-visible CPUs after SMT is enabled or disabled, and it never implies
+`smt.enabled`. NUMA is generic: `numa` and `interleaved` modes, with positive
+`nodesPerSocket` where recorded. AMD NPS names belong to future platform adapters.
+A supplied detailed nodes list is treated as complete; `id` and `socket` are
+required, while core counts may be unknown/omitted. This resolves the requested
+conditional core-sum rule without adding a separate completeness flag. Numeric
+NUMA IDs remain inventory values, not separate canonical graph identities.
+
+Hardware storage moves from `Server.spec.storageDevices` to
+`Server.spec.storage.{controllers,devices,volumes}`. Devices retain the
+`storage-device` canonical segment. Controllers use `mode`; volumes use
+`raid.level`, with no redundant controller type. Optional storage-device
+`manufacturer` becomes `vendor` to match the storage inventory vocabulary;
+profile and network-adapter manufacturer fields retain their existing names.
+All old alpha source shapes are rejected, without duplicate aliases.
+
+`ClusterNode.configuration.storage` holds partition tables and optional LVM.
+Sources resolve to the selected bare-metal Server’s devices/volumes, or to a
+local partition for PVs. Known ownership conflicts are errors. Without exact
+placement, valid sources may be recorded, but availability to the node is
+UNKNOWN; references do not infer placement. Physical-source storage configuration
+is not supported for VM nodes in this pass.
+
+Storage-local references expand in the registry before semantic validation.
+There is no global name search or cross-scope fallback. Canonical/local spellings
+of one target count as duplicates. Existing graph containment remains, augmented
+with controller, backing-device, partition, and LVM relations using the existing
+lowercase relation API. See the [model contract](model-v0alpha1.md) for exact
+identities, relationships, field rules, and migration paths.
+
+## Filesystem and mount-point policy boundary
+
+Filesystem and mount-point intent is deliberately outside the v0alpha1
+infrastructure core. The infrastructure model stops at the block-device/LVM
+layer.
+
+Filesystem creation, formatting, mount-point selection, fstab generation, and
+equivalent NixOS filesystem declarations are configuration policy and belong
+to future Ansible/Nix adapters. Partition `type` and `role`, and names such as
+`lv_root`, do not imply filesystem or mount-point defaults. The conventional
+mapping documented in the model guide is illustrative policy, never schema data.
+
 ## Intentionally deferred
 
-- FABRIC, Chameleon, FIM, Redfish, and NetBox adapters.
-- Ansible and Nix renderers; Neo4j backend.
-- FIM NetworkService and resource delegation concepts.
+- Filesystem definitions, creation/formatting/provisioning, mount points, fstab,
+  NixOS filesystem configuration, Ansible storage roles, and Ansible/Nix renderers.
+- FABRIC, Redfish, Dell/iDRAC, AMD firmware, NetBox, Chameleon, and FIM adapters.
+- Neo4j backend, FIM NetworkService, and resource delegation concepts.
 - Provider discovery, provisioning, lifecycle reconciliation, and persistence.
-- Scheduling, VM overcommit policy, resource reservation, aggregate capacity accounting, physical port
-  occupancy, and proof of live availability.
-- Additional component families, accelerators, storage topology, attachment-to-NIC
-  binding, network services, routing, and address allocation.
+- CPU pinning, Linux logical CPU IDs, affinity masks/cpusets, VM NUMA, huge pages,
+  NUMA-aware scheduling, and scheduler topology.
+- RAID capacity/parity calculations, stripe size, cache policy, rebuild policy,
+  hot-spare scheduling, hot spares, and drive rebuild state.
+- Disk encryption, mdraid, multipath, and explicit partition start/end sectors.
+- LVM thin provisioning/pools, snapshots, RAID LVs, cache volumes, mirroring,
+  PE-size tuning, tags, and activation policies.
+- Scheduling, VM overcommit, reservations, aggregate capacity accounting,
+  partition/LVM allocation math, source exclusivity across tables/whole devices,
+  physical port occupancy, and proof of live availability.
+- Additional component families/accelerators, attachment-to-NIC binding, network
+  services, routing, and address allocation.
 - Image catalogs, role execution, OS compatibility, and extension-specific validation.
 - Export/save, migration tooling, schema version negotiation, and elaborate Python
   domain classes while field shapes remain alpha.

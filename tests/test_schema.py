@@ -47,7 +47,7 @@ def test_quantities_are_explicit_positive_and_dimensioned(documents, inventory, 
 
 
 def test_core_counts_are_integral(documents, inventory):
-    inventory["HardwareProfile/dell-r7525"]["spec"]["capabilities"]["compute"]["cores"] = {"value": 1.5, "unit": "core"}
+    inventory["HardwareProfile/dell-r7525"]["spec"]["capabilities"]["compute"]["cpu"]["cores"] = 1.5
     with pytest.raises(ValidationError):
         InfrastructureModel.from_documents(documents).validate()
 
@@ -132,10 +132,10 @@ def test_inventory_cpu_fields_not_requirement_fields(documents, inventory, field
         InfrastructureModel.from_documents(documents).validate()
 
 
-def test_physical_sockets_are_explicit_inventory_quantities(documents, inventory):
-    inventory["Server/amst-w2"]["spec"]["capabilities"] = {"compute": {"sockets": {"value": 2, "unit": "socket"}}}
+def test_physical_sockets_are_integer_inventory_counts(documents, inventory):
+    inventory["Server/amst-w2"]["spec"]["capabilities"] = {"compute": {"cpu": {"sockets": 2}}}
     model = InfrastructureModel.from_documents(documents)
-    assert model.effective_capabilities("server/amst-w2")["compute"]["sockets"] == {"value": 2, "unit": "socket"}
+    assert model.effective_capabilities("server/amst-w2")["compute"]["cpu"]["sockets"] == 2
 
 
 @pytest.mark.parametrize("location", ["capability", "requirement", "device"])
@@ -144,7 +144,7 @@ def test_storage_vocabulary_is_separated(documents, inventory, location, field, 
     container = {
         "capability": inventory["HardwareProfile/dell-r7525"]["spec"]["capabilities"]["storage"],
         "requirement": inventory["Cluster/openstack-lab"]["spec"]["nodes"][0]["requirements"]["storage"],
-        "device": inventory["Server/amst-w2"]["spec"]["storageDevices"][0],
+        "device": inventory["Server/amst-w2"]["spec"]["storage"]["devices"][0],
     }[location]
     container[field] = value
     with pytest.raises(ValidationError):
@@ -215,7 +215,7 @@ def test_storage_vocabulary_accepts_supported_values(documents, inventory, field
 
 
 def test_unknown_storage_composition_can_be_omitted(documents, inventory):
-    for storage in [inventory["HardwareProfile/dell-r7525"]["spec"]["capabilities"]["storage"], inventory["Server/amst-w2"]["spec"]["storageDevices"][0]]:
+    for storage in [inventory["HardwareProfile/dell-r7525"]["spec"]["capabilities"]["storage"], inventory["Server/amst-w2"]["spec"]["storage"]["devices"][0]]:
         storage.pop("medium")
         storage.pop("protocol")
     InfrastructureModel.from_documents(documents).validate()

@@ -10,7 +10,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @pytest.fixture
 def documents():
-    return [document.data for document in load_documents(ROOT / "examples")]
+    # Keep the original regression scenarios independent of additional examples.
+    return [document.data for name in ("amst", "chameleon-like", "fabric-like")
+            for document in load_documents(ROOT / "examples" / name)]
 
 
 @pytest.fixture

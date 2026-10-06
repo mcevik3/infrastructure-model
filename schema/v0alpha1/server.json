@@ -23,7 +23,7 @@
           "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/profileRef"
         },
         "capabilities": {
-          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/capabilities"
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/serverCapabilities"
         },
         "networkAdapters": {
           "type": "array",
@@ -31,14 +31,11 @@
             "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/networkAdapter"
           }
         },
-        "storageDevices": {
-          "type": "array",
-          "items": {
-            "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/storageDevice"
-          }
-        },
         "extensions": {
           "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
+        },
+        "storage": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/serverStorage"
         }
       },
       "required": [

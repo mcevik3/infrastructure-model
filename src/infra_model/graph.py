@@ -45,6 +45,26 @@ class Topology:
                     self._edge(entry.id, endpoint, "terminates_at", endpoint)
                 self._edge(left, right, "physical_link", entry.id, link=entry.id)
                 self._edge(right, left, "physical_link", entry.id, link=entry.id)
+            if entry.kind in {"StorageController", "StorageDevice", "StorageVolume"}:
+                relation = {"StorageController": "has_storage_controller",
+                            "StorageDevice": "has_storage_device",
+                            "StorageVolume": "has_storage_volume"}[entry.kind]
+                self._edge(entry.parent, entry.id, relation)
+                if "controllerRef" in data:
+                    relation = "controls" if entry.kind == "StorageDevice" else "provides"
+                    self._edge(data["controllerRef"], entry.id, relation)
+                for device in data.get("deviceRefs", []):
+                    self._edge(entry.id, device, "uses_device")
+            elif entry.kind in {"PartitionTable", "PhysicalVolume", "VolumeGroup", "LogicalVolume"}:
+                self._edge(entry.parent, entry.id, "configures")
+                if "sourceRef" in data:
+                    self._edge(entry.id, data["sourceRef"], "uses_block_device")
+                for pv in data.get("physicalVolumeRefs", []):
+                    self._edge(entry.id, pv, "uses_pv")
+                if "volumeGroupRef" in data:
+                    self._edge(entry.id, data["volumeGroupRef"], "allocated_from")
+            elif entry.kind == "Partition":
+                self._edge(entry.parent, entry.id, "has_partition")
 
     def _edge(self, source: str, target: str, relation: str, key: str | None = None, **attributes: Any) -> None:
         self._graph.add_edge(source, target, key=key or relation, relation=relation, **attributes)
