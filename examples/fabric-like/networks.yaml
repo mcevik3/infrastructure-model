@@ -6,6 +6,12 @@ spec:
   siteRef: site/lab-site
   layer: layer2
   prefixes: [192.0.2.0/24]
+  defaultGateways:
+    - prefix: 192.0.2.0/24
+      address: 192.0.2.1
+  dns:
+    servers:
+      - 192.0.2.53
 ---
 apiVersion: infra.model/v0alpha1
 kind: Network
@@ -15,3 +21,4 @@ spec:
   siteRef: site/lab-site
   layer: layer2
   prefixes: [198.51.100.0/24]
+  defaultGateways: []

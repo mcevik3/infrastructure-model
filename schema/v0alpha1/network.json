@@ -34,6 +34,47 @@
           },
           "uniqueItems": true
         },
+        "defaultGateways": {
+          "type": "array",
+          "description": "One default gateway per declared prefix; omission is unspecified and an empty list explicitly means no default gateway.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "prefix": {
+                "type": "string",
+                "format": "ip-prefix",
+                "pattern": "^[^/]+/(?:0|[1-9][0-9]*)$(?![\\s\\S])"
+              },
+              "address": {
+                "type": "string",
+                "format": "ip-address"
+              }
+            },
+            "required": [
+              "prefix",
+              "address"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "dns": {
+          "type": "object",
+          "description": "Shared DNS configuration; omission is unspecified and an empty servers list explicitly means no DNS servers.",
+          "properties": {
+            "servers": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "ip-address"
+              },
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "servers"
+          ],
+          "additionalProperties": false
+        },
         "extensions": {
           "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
         }

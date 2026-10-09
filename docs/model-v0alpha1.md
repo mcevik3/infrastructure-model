@@ -275,7 +275,8 @@ distinct. The model does not enforce one cable per port or infer logical Network
 
 ## Logical networking and deployment intent
 
-**Network** has optional `spec.siteRef`, `layer` (`layer2` or `layer3`), and `prefixes`.
+**Network** has optional `spec.siteRef`, `layer` (`layer2` or `layer3`), `prefixes`,
+`defaultGateways`, and `dns`.
 Omitting siteRef allows a domain without a single-site scope. Each prefix must be
 a strict IPv4/IPv6 CIDR network in prefix-length notation, with no host bits
 set: `192.0.2.0/24` and `2001:db8::/64` are valid; `192.0.2.1/24` is not.
@@ -284,6 +285,65 @@ Dotted netmasks (`192.0.2.0/255.255.255.0`) and hostmasks
 without leading zeros, except `0` itself. Address-family and range checks remain
 in force. Multiple prefixes and dual-stack domains are supported.
 No provider service, network implementation, or delegation is implied.
+
+`prefixes` describes the Network's IP subnets/prefixes. `defaultGateways` associates
+at most one default gateway with each declared prefix. Each entry requires
+`prefix` (the same strict CIDR syntax) and `address` (a plain IPv4/IPv6 literal).
+The prefix must equal a prefix declared in this Network, using semantic IP-network
+comparison, so equivalent IPv6 spellings match. Containing subnets/supernets or a
+prefix on another Network do not satisfy this rule. Duplicate gateway entries
+for an equivalent prefix are rejected, even if their gateway addresses differ.
+
+A gateway's address family must match its prefix's family. The gateway need not
+be contained inside that prefix: IPv6 link-local gateways such as `fe80::1` and
+IPv4 gateways outside the referenced prefix are allowed. This describes shared
+configuration intent; validation does not prove gateway reachability.
+
+`dns`, when supplied, requires `servers`, an ordered array of plain IPv4/IPv6
+resolver addresses. Mixed families and an empty array are supported. Duplicate
+addresses, including equivalent IPv6 spellings, are rejected. Servers need not
+belong to a Network prefix. Declared order and IP spellings are preserved.
+As with attachment addresses, gateway and DNS addresses have no prefix lengths
+or IPv6 zone IDs.
+
+```yaml
+apiVersion: infra.model/v0alpha1
+kind: Network
+metadata:
+  name: management
+spec:
+  layer: layer2
+  prefixes:
+    - 192.0.2.0/24
+    - 2001:db8:1234:1::/64
+  defaultGateways:
+    - prefix: 192.0.2.0/24
+      address: 192.0.2.1
+    - prefix: 2001:db8:1234:1::/64
+      address: fe80::1
+  dns:
+    servers:
+      - 192.0.2.53
+      - 2001:4860:4860::8888
+```
+
+Omission and explicit empty configuration are distinct:
+
+| Source shape | Meaning |
+| --- | --- |
+| `defaultGateways` omitted | Default-gateway configuration is unspecified. |
+| `defaultGateways: []` | This Network intentionally has no default gateway. |
+| `dns` omitted | DNS configuration is unspecified. |
+| `dns: {servers: []}` | This Network intentionally has no DNS servers. |
+
+Validation and public dictionary/topology views preserve that distinction;
+neither defaults nor empty collections are inserted. Omission produces no
+warning. These are optional additions: existing Networks without either field
+remain valid, and the existing `prefixes` shape is unchanged. Gateway/DNS
+configuration stays on the Network as attributes, without new entities or edges.
+Arbitrary static routes, route metrics/priorities, multiple gateways per prefix,
+ECMP, failover, policy routing, DHCP, DNS search domains, split DNS, encrypted DNS,
+and attachment-level gateway/DNS overrides are deferred.
 
 **Cluster** requires a nonempty `spec.nodes` collection. Optional `siteRef` supplies
 a default placement location. Optional `image` contains a required descriptive
@@ -327,6 +387,9 @@ Optional `addresses` are unique plain IPv4/IPv6 host literals, without prefix
 lengths or IPv6 zone IDs. Every address must lie within at least one same-family
 prefix declared on that Network. An addressless attachment may refer to a Network
 without prefixes. Addresses are intent, distinct from observed addresses in status.
+Node-specific host addresses remain on `networkAttachments[].addresses`.
+Attachments hold `networkRef`, `addresses`, and `interfaceRequirements`; they do
+not duplicate or override shared Network gateway/DNS configuration.
 
 ## Device and interface requirements
 
@@ -522,10 +585,32 @@ to `L2Bridge` and an Ethernet VM attachment to `NIC_Basic` or another suitable
 component. No such vocabulary, translation, or adapter is implemented in core
 schema or validation.
 
+The adapter design rule is:
+
+> The generic model says what network capability is required; the provider
+> adapter decides which provider-specific NIC/component model satisfies that
+> requirement.
+
+For FABRIC, ordinary Ethernet may initially map to `NIC_Basic`. Future adapter
+design must also account for dedicated NIC components such as ConnectX-6 and
+one physical NIC/component exposing multiple interfaces. It must not assume
+`one networkAttachment == one FABRIC NIC component`.
+
+A future adapter can combine `Network.spec.prefixes`,
+`Network.spec.defaultGateways`, `Network.spec.dns`, and each attachment's
+`addresses` to render interface address/prefix, default gateway, and DNS servers.
+Shared Network configuration may then be expanded into provider-specific
+per-interface configuration while preserving the omitted/empty distinction.
+Selection of a prefix where several overlap and provider/OS rendering policy
+remain adapter work. This documents future consumption only: no FABRIC rendering,
+FABlib calls, NIC translation, guest interface names, or NetworkManager connection
+names are added to the core.
+
 Hostname behavior and Cluster image behavior are unchanged. The committed
 v0alpha1 already accepted node-level `image`; this extension preserves that
 source compatibility rather than introducing or expanding overrides. Hostname
-policy, image override policy, gateways, and DNS remain future review items.
+policy and image override policy remain future review items. Shared gateway/DNS
+configuration follows the Network contract above.
 
 ## Exact resource placement
 
@@ -594,13 +679,17 @@ The processing pipeline is:
 3. Derive canonical IDs, enforce name uniqueness, index embedded entities, and
    expand documented local storage references.
 4. Resolve references and check physical identity, CPU topology, storage and
-   block-device configuration, IP membership, and exact placement.
+   block-device configuration, IP membership, Network gateway/DNS constraints,
+   and exact placement.
 5. Construct topology lazily when requested.
 
 Files and documents need not be dependency ordered. Schema and semantic errors
 carry stable codes such as `schema`, `duplicate_name`, `duplicate_component_name`,
 `unresolved_reference`, `duplicate_mac`, `duplicate_pci`, `address_outside_prefix`,
-and `incompatible_resource`. A failed phase raises `ValidationError` and prevents
+and `incompatible_resource`. Network configuration checks add
+`gateway_prefix_not_declared`, `gateway_address_family`,
+`duplicate_default_gateway`, and `duplicate_dns_server`; malformed inputs and
+identical DNS duplicates fail schema validation. A failed phase raises `ValidationError` and prevents
 invalid data or an incomplete graph from being returned. A successful immutable
 `ValidationReport` includes document/entity counts and warning issues.
 
@@ -610,6 +699,8 @@ units, and MAC/PCI spelling retain authored representations. Existing network
 and placement references already use canonical syntax. Local storage references
 expand to full canonical IDs in all normalized dictionary and graph views.
 Source inputs and opaque status/extensions are never mutated.
+Network gateway/DNS omission, explicit empty lists, and resolver order are
+preserved in all views.
 
 ## Public construction API
 

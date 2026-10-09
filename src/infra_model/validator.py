@@ -164,6 +164,8 @@ class SemanticValidator:
                     self._resolve(entry, endpoint, "Interface", f"/spec/endpoints/{index}")
             elif entry.kind == "NetworkAttachment":
                 self._attachment(entry)
+            elif entry.kind == "Network":
+                self._network(entry)
             elif entry.kind == "ClusterNode":
                 self._storage_configuration(entry)
                 placement = data.get("placement", {})
@@ -346,6 +348,34 @@ class SemanticValidator:
                 if reference in growing:
                     self._issue(lv, "multiple_grow", "at most one grow LV per VG", "/grow")
                 growing.add(reference)
+
+    def _network(self, entry: Entry) -> None:
+        spec = entry.data["spec"]
+        prefixes = {ipaddress.ip_network(prefix) for prefix in spec.get("prefixes", [])}
+        gateway_prefixes = set()
+        for index, gateway in enumerate(spec.get("defaultGateways", [])):
+            path = f"/spec/defaultGateways/{index}"
+            prefix = ipaddress.ip_network(gateway["prefix"])
+            address = ipaddress.ip_address(gateway["address"])
+            if prefix not in prefixes:
+                self._issue(entry, "gateway_prefix_not_declared",
+                            f"{gateway['prefix']} is not declared in this Network's prefixes", path + "/prefix")
+            if address.version != prefix.version:
+                self._issue(entry, "gateway_address_family",
+                            "default gateway address family must match its prefix", path + "/address")
+            if prefix in gateway_prefixes:
+                self._issue(entry, "duplicate_default_gateway",
+                            f"at most one default gateway is allowed for prefix {prefix}", path + "/prefix")
+            gateway_prefixes.add(prefix)
+            # Gateways need not be on-prefix, including IPv6 link-local gateways.
+
+        servers = set()
+        for index, value in enumerate(spec.get("dns", {}).get("servers", [])):
+            address = ipaddress.ip_address(value)
+            if address in servers:
+                self._issue(entry, "duplicate_dns_server", f"DNS server {value} repeats an equivalent address",
+                            f"/spec/dns/servers/{index}")
+            servers.add(address)
 
     def _attachment(self, entry: Entry) -> None:
         network = self._resolve(entry, entry.data["networkRef"], "Network", "/networkRef")

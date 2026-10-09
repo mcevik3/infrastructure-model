@@ -40,7 +40,8 @@ is provisional; this pass establishes no permanent organizational namespace.
 | PCI scope | Uniqueness within a Server across accelerators, adapters, storage controllers, and storage devices; absent domain means `0000`; hex is case-insensitive | A global uniqueness check would incorrectly reject ordinary PCI address reuse on different machines. |
 | MAC scope | Uniqueness across every modeled inventory Interface, case-insensitive | Intentional shared virtual/anycast MACs are outside this physical inventory pass. |
 | Address shape | Attachment `addresses` are plain IPv4/IPv6 literals; Network `prefixes` use strict CIDR prefix-length notation, rejecting dotted netmasks/hostmasks | Confirm whether future addresses should include per-address metadata or allocation modes. |
-| Network prefix semantics | An address must belong to a prefix of its referenced Network; an address with no declared prefix fails | Overlapping prefixes, duplicate IPs, gateways, reserved/broadcast addresses, and routing policies are not validated. |
+| Network prefix semantics | An attachment address must belong to a prefix of its referenced Network; an attachment address with no declared prefix fails | Overlapping prefixes, duplicate host IPs, reserved/broadcast addresses, and routing policies are not validated. |
+| Network gateway/DNS configuration | Optional shared `defaultGateways` and `dns.servers`; one gateway per declared prefix, matching IP family without requiring containment; DNS addresses are unique and ordered | Omission is unspecified; explicit empty lists mean none. Arbitrary static routes, metrics, and attachment overrides are deferred. |
 | Site inheritance | Node `placement.siteRef` overrides the Cluster default; exact resources must match the effective site when one is supplied | Network site does not restrict attachments; cross-site connectivity is not inferred. |
 | OS image and roles | Cluster image supplies descriptive default intent; nodes may override image; roles are free strings | Image resolution, OS suitability, role definitions, and configuration generation are deferred. |
 | Extensions/status | Generic status fields are `availability`, `operationalState`, `powerState`, `observedAt`, and namespaced `extensions`; shared where entity schemas support status. Accelerator inventory adds no status or provider-specific fields | Provider transient/discovered state belongs under `status.extensions` where supported. Payloads stay opaque; no provider-specific status schemas. |
@@ -221,8 +222,62 @@ inventory, with explicit GPU/FPGA counts of 1 and zero compatibility warnings.
 
 All new source fields are optional additions. Previously valid documents remain
 valid; no old field, canonical ID, relation, or schema/distribution version is
-removed or renamed. Hostnames, image resolution/override policy, gateways, and
-DNS receive no new behavior and remain future review items.
+removed or renamed by the requirement additions. Hostnames and image
+resolution/override policy remain future review items. Shared Network
+gateway/DNS configuration is specified below.
+
+## Shared Network default gateways and DNS
+
+`Network.spec.prefixes` retains its existing strict IP/CIDR shape and describes
+the Network's IP prefixes/subnets. Optional `defaultGateways` associates a
+gateway `address` with a required `prefix` declared on that same Network.
+Semantic IP-network comparison handles equivalent IPv6 spellings. The gateway
+must use the prefix's IP family, but need not be contained in that prefix;
+IPv6 link-local gateways and IPv4 gateways outside the prefix are valid intent.
+At most one gateway per equivalent prefix is allowed in v0alpha1, so duplicate
+definitions and competing gateways for that prefix are rejected.
+
+Optional `dns` requires an ordered `servers` array of IPv4/IPv6 addresses,
+allowing mixed families and empty lists. Duplicate addresses, including
+semantically equivalent IPv6 spellings, are rejected. Resolver order and source
+spellings remain intact; DNS addresses need not belong to a Network prefix.
+The model guide includes a [dual-stack example with an IPv6 link-local gateway](model-v0alpha1.md#logical-networking-and-deployment-intent).
+
+Omitted `defaultGateways` means unspecified gateway configuration;
+`defaultGateways: []` intentionally means no default gateway. Omitted `dns`
+means unspecified DNS; `dns: {servers: []}` intentionally means no DNS servers.
+Neither validation nor normalized dictionary/graph views insert defaults or
+convert omission into empty values. Missing configuration produces no warning.
+These optional additions keep existing Network documents valid and create no
+new canonical identities or graph relationships.
+
+Network owns shared `prefixes`, `defaultGateways`, and `dns`. Node-specific host
+addresses remain on `networkAttachments[].addresses`, alongside `networkRef`
+and `interfaceRequirements`. No gateway/DNS fields or overrides are added to
+attachments. The FABRIC-like example now gives management `192.0.2.1` as gateway
+for `192.0.2.0/24` and `192.0.2.53` as DNS. Storage explicitly declares no gateway
+and leaves DNS unspecified; all Cluster node addresses are preserved.
+
+A future provider adapter can consume Network prefixes/default gateways/DNS
+plus attachment addresses to render interface address/prefix, default gateway,
+and DNS server configuration. Expanding shared configuration into provider-specific
+per-interface settings is an adapter responsibility, not another core source
+representation. This change includes no FABRIC adapter or FABlib calls.
+
+Preserve this NIC adapter design rule:
+
+> The generic model says what network capability is required; the provider
+> adapter decides which provider-specific NIC/component model satisfies that
+> requirement.
+
+For FABRIC, ordinary Ethernet may initially map to `NIC_Basic`. Future adapter
+design must also handle dedicated NIC components such as ConnectX-6 and a single
+physical NIC/component exposing multiple interfaces. It must not assume
+`one networkAttachment == one FABRIC NIC component`. No such mapping is implemented.
+
+Arbitrary static routes, route metrics/priorities, multiple gateways per prefix,
+ECMP, failover, policy routing, DHCP, DNS search domains, DNS priority, per-interface
+or split DNS, DNS-over-TLS/HTTPS, and attachment gateway/DNS overrides are deferred.
 
 ## Intentionally deferred
 
@@ -242,7 +297,7 @@ DNS receive no new behavior and remain future review items.
   partition/LVM allocation math, source exclusivity across tables/whole devices,
   physical port occupancy, and proof of live availability.
 - Broader `other` device requirement mapping, attachment-to-NIC binding, network services,
-  routing, gateway/DNS policy, and address allocation.
+  static routes, routing policy, gateway/DNS rendering, DHCP, and address allocation.
 - Accelerator allocation, GPU memory requirements, per-accelerator operating state,
   PCI placement, NUMA/device affinity, GPU partitioning/MIG, FPGA bitstreams,
   DPU OS configuration, RDMA configuration, SR-IOV VF allocation, guest interface

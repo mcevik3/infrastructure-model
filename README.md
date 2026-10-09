@@ -82,7 +82,7 @@ Examples are illustrative, not discovered inventories or provider adapter output
 | [chameleon-like](examples/chameleon-like/inventory.yaml) | UC, compute-cascadelake-r, P3-CPU-004 |
 | [amst](examples/amst/inventory.yaml) | AMST, Dell R7525 profile, amst-w2, switch, physical Link |
 | [baremetal](examples/baremetal/infrastructure.yaml) | Dual-socket EPYC, SMT/NUMA, controller/disks/RAID volumes, GPT and LVM with exact bare-metal placement |
-| [fabric-like](examples/fabric-like/cluster.yaml) | Layer2 management/storage Networks, Rocky Linux 9 VMs, namespaced OpenStack roles, Ethernet requirements, static IPv4 attachments |
+| [fabric-like](examples/fabric-like/cluster.yaml) | Layer2 management/storage Networks, shared management gateway/DNS, explicitly no storage gateway, Rocky Linux 9 VMs, namespaced OpenStack roles, Ethernet requirements, static IPv4 attachments |
 | [device-requirements](examples/device-requirements/infrastructure.yaml) | GPU/FPGA inventory and intent, two NVMe devices, 100 Gbps Ethernet/RDMA SmartNIC attachment, exact placement with zero warnings |
 
 Each example directory also validates independently. Inventory capacities and
@@ -145,3 +145,11 @@ Omitted inventory collections mean not reported/UNKNOWN; explicitly empty lists
 mean known to contain none and make requirements for that family UNSATISFIED.
 See [device and interface requirements](docs/model-v0alpha1.md#device-and-interface-requirements)
 for fields, evidence rules, and the historical FABRIC vocabulary mapping.
+
+Networks can declare shared `defaultGateways` (one per declared prefix) and
+ordered `dns.servers`. Gateway families must match their prefixes; gateway
+containment is not required, allowing IPv6 link-local gateways. Omitted fields
+are unspecified, while explicit empty lists mean no gateways or DNS servers.
+Node-specific addresses remain on network attachments. See
+[logical networking](docs/model-v0alpha1.md#logical-networking-and-deployment-intent)
+for the dual-stack example, validation rules, and future adapter consumption.
