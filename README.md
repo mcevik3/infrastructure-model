@@ -157,6 +157,13 @@ mean known to contain none and make requirements for that family UNSATISFIED.
 See [device and interface requirements](docs/model-v0alpha1.md#device-and-interface-requirements)
 for fields, evidence rules, and the historical FABRIC vocabulary mapping.
 
+Optional attachment `adapterGroup` declares interfaces that must share one
+network adapter/component within a single node. Equal keys on different nodes
+are unrelated; omitted keys and identical requirements do not imply sharing.
+Core checks explicit adapter identity contradictions, while providers resolve
+joint capability and interface counts. See
+[node-local adapter grouping](docs/model-v0alpha1.md#node-local-network-adapter-grouping).
+
 `Network.spec.siteRefs` is an optional allowed site scope: a nonempty list of
 unique canonical Site references that must resolve. Omission means unconstrained
 by the Network; `siteRefs: []` is invalid. Authored order is preserved but has no

@@ -431,8 +431,9 @@ lengths or IPv6 zone IDs. Every address must lie within at least one same-family
 prefix declared on that Network. An addressless attachment may refer to a Network
 without prefixes. Addresses are intent, distinct from observed addresses in status.
 Node-specific host addresses remain on `networkAttachments[].addresses`.
-Attachments hold `networkRef`, `addresses`, and `interfaceRequirements`; they do
-not duplicate or override shared Network gateway/DNS configuration.
+Attachments hold `networkRef`, `addresses`, `interfaceRequirements`, and optional
+`adapterGroup`; they do not duplicate or override shared Network gateway/DNS
+configuration.
 
 ## Device and interface requirements
 
@@ -522,6 +523,73 @@ cross-reference between these requests. They are checked independently and may
 refer conceptually to the same hardware; neither co-location on one component
 nor separation onto different components is established.
 
+### Node-local network adapter grouping
+
+Optional `networkAttachments[].adapterGroup` identifies attachments on **one
+ClusterNode** that must share one allocatable network adapter/component. It is
+a sibling of `interfaceRequirements`, not part of `interfaceRequirements.adapter`:
+the latter constrains capability/adapter identity, while `adapterGroup` declares
+which interfaces must share an adapter.
+
+```yaml
+networkAttachments:
+  - name: management
+    networkRef: network/management
+    interfaceRequirements: {type: ethernet}
+  - name: data
+    networkRef: network/data
+    adapterGroup: highspeed-1
+    interfaceRequirements:
+      type: ethernet
+      adapter:
+        class: standard
+        vendor: Example Networks
+        model: Model-A
+  - name: storage
+    networkRef: network/storage
+    adapterGroup: highspeed-1
+    interfaceRequirements:
+      type: ethernet
+      adapter:
+        class: standard
+        vendor: Example Networks
+```
+
+Data and storage request interfaces on the same adapter; management declares no
+grouping relationship. The group key uses the existing case-sensitive local-name
+syntax: an ASCII letter or digit followed by letters, digits, `.`, `_`, or `-`.
+Empty strings and resource-reference syntax such as `adapter-group/foo` are
+invalid. There is no default, and single-member groups are valid.
+
+The same string on different nodes is unrelated. Different explicit values on
+one node identify different requested groups and must not be merged into one
+requested group. Omitted `adapterGroup` declares no sharing relationship;
+identical `interfaceRequirements` never imply required sharing. Normalization
+preserves the authored key or its absence without inventing implicit groups.
+
+Within each explicit node-local group, core validation rejects only direct,
+case-sensitive contradictions in explicitly authored adapter `class`, `vendor`,
+or `model` selectors. `adapter_group_conflict` identifies the node, group, field,
+and conflicting values. A member may omit adapter identity or refine another
+member's partial selectors. Different speeds, feature sets, or other interface
+requirements do not alone cause a group conflict; members need not have identical
+requirements. The existing rule requiring `class` when an adapter object is
+present is unchanged.
+
+Provider adapters must jointly resolve a group's requirements against an actual
+adapter/component with sufficient interfaces and capability. Core grouping checks
+do not prove port counts, speed feasibility, availability, or scheduling. Each
+attachment remains a logical Network endpoint: two grouped attachments still count
+as two endpoints for point-to-point cardinality. Network scope, placement, and
+independent `requirements.devices` semantics are unchanged.
+
+`adapterGroup` is a node-local realization constraint carried in normalized IR,
+not a globally addressable topology resource. It creates no kind, canonical ID,
+or graph edge. NetworkAttachment relationships remain unchanged.
+
+The generic model describes WHAT network capability/topology is required;
+provider adapters decide HOW provider resources realize it.
+
 ### Inventory evidence and compatibility
 
 The current inventory taxonomy remains authoritative:
@@ -590,10 +658,12 @@ source path; interface diagnostics identify the attachment's
 `interfaceRequirements`. Without exact placement, VM/site-only and unplaced
 intent remain valid with the existing single UNKNOWN placement warning per node.
 
-Every requirement and attachment is evaluated independently, even within one
-node. Counts do not reserve inventory or subtract it from another request.
-There is no component/port exclusivity, scheduling, binding, PCI-slot assignment,
-NUMA/device affinity, GPU partitioning, or proof of live availability.
+Inventory compatibility still evaluates every requirement and attachment
+independently, even within an explicit adapter group. These checks do not prove
+joint group realizability. Counts do not reserve inventory or subtract it from
+another request. There is no component/port exclusivity, scheduling, physical
+binding, PCI-slot assignment, NUMA/device affinity, GPU partitioning, or proof of
+live availability.
 
 ### Historical FABRIC topology vocabulary
 
@@ -765,7 +835,7 @@ The processing pipeline is:
    expand documented local storage references.
 4. Resolve references and check physical identity, CPU topology, storage and
    block-device configuration, IP membership, Network gateway/DNS constraints,
-   and exact placement.
+   node-local adapter identity conflicts, and exact placement.
 5. Construct topology lazily when requested.
 
 Files and documents need not be dependency ordered. Schema and semantic errors
@@ -833,6 +903,8 @@ ID. Edges preserve these meanings and directions:
 Network → Site edges come only from declared `siteRefs`; no additional edges
 are derived from attached endpoint sites. Effective endpoint sites remain
 available through attachment relationships and ClusterNode `targets_site` edges.
+Attachment `adapterGroup` values remain node-local attributes; groups have no
+vertices, canonical IDs, or edges.
 
 `topology.nodes(kind=None)` returns normalized dictionaries;
 `topology.edges(relation=None)` returns dictionaries with `source`, `target`,

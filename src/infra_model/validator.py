@@ -172,6 +172,7 @@ class SemanticValidator:
                 self._network(entry)
             elif entry.kind == "ClusterNode":
                 self._storage_configuration(entry)
+                self._adapter_groups(entry)
                 placement = data.get("placement", {})
                 if "siteRef" in placement:
                     self._resolve(entry, placement["siteRef"], "Site", "/placement/siteRef")
@@ -199,6 +200,28 @@ class SemanticValidator:
         if self.issues:
             raise ValidationError(self.issues)
         return tuple(self.warnings)
+
+    def _adapter_groups(self, node: Entry) -> None:
+        """Check explicit node-local identity conflicts, without allocating adapters."""
+        groups: dict[str, dict[str, str]] = {}
+        for attachment in node.data.get("networkAttachments", []):
+            if "adapterGroup" not in attachment:
+                continue
+            group = attachment["adapterGroup"]
+            selectors = groups.setdefault(group, {})
+            adapter = attachment.get("interfaceRequirements", {}).get("adapter", {})
+            for field in ("class", "vendor", "model"):
+                if field not in adapter:
+                    continue
+                value = adapter[field]
+                previous = selectors.setdefault(field, value)
+                if value != previous:
+                    self._issue(
+                        self.registry.entries[attachment["id"]], "adapter_group_conflict",
+                        f"{node.id} adapterGroup {group!r} has conflicting adapter.{field} "
+                        f"values: {previous!r} and {value!r}",
+                        f"/interfaceRequirements/adapter/{field}",
+                    )
 
     def _cpu_inventory(self, entry: Entry) -> None:
         spec = entry.data["spec"]

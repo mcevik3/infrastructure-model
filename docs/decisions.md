@@ -202,7 +202,8 @@ Incomplete candidate fields remain unknown. A candidate with a known mismatch
 cannot match; enough proven matches satisfy a request; too few candidates even
 including unknown matches disprove it. No per-node or cross-node reservation,
 count subtraction, or attachment/interface allocation follows from these checks.
-Different requests can independently be satisfied by the same component.
+Different requests can independently be satisfied by the same component; that
+compatibility evidence alone does not establish grouping or allocation.
 
 Feature names are unique normalized lowercase strings, with initial network
 vocabulary `rdma` and `sriov`. Other generic names are allowed without changing
@@ -228,6 +229,41 @@ valid; no old field, canonical ID, relation, or schema/distribution version is
 removed or renamed by the requirement additions. Hostnames and image
 resolution/override policy remain future review items. Shared Network
 gateway/DNS configuration is specified below.
+
+## Node-local network adapter grouping
+
+Optional `ClusterNode.networkAttachments[].adapterGroup` declares that members
+of one explicit group must share an allocatable network adapter/component.
+It uses the existing case-sensitive local-name syntax, has no default, and
+permits single-member groups. It is separate from `interfaceRequirements.adapter`,
+which describes adapter capability/identity selectors.
+
+Keys are local to one ClusterNode: equal strings on different nodes are unrelated.
+Different explicit values identify different requested groups and must not be
+merged into one requested group. Omission declares no grouping relationship;
+identical interface requirements do not imply sharing. Source and normalized
+data preserve explicit keys and omission without synthesizing groups.
+
+Core validation reports `adapter_group_conflict` only for conflicting explicit
+adapter `class`, `vendor`, or `model` values within the same node/group. Partial
+selectors are compatible when they do not contradict; speeds, features, and
+other interface requirements need not be identical. Existing per-attachment
+inventory compatibility checks remain independent. Providers must resolve joint
+capabilities and sufficient interfaces; core adds no port-count knowledge,
+hardware scheduling, allocation, or availability checks.
+
+Groups are normalized attachment attributes, not globally addressable resources:
+there is no new kind, canonical ID, or graph edge. Two grouped attachments remain
+two logical Network endpoints. Network scope/connectivity, placement, and
+independent device requirements are unchanged. Network capability continues to
+belong in `interfaceRequirements`, without duplicating NIC requests under
+`requirements.devices`.
+
+The [model guide](model-v0alpha1.md#node-local-network-adapter-grouping) shows
+grouped data/storage interfaces alongside ungrouped management. The generic model
+describes WHAT network capability/topology is required; provider adapters decide
+HOW provider resources realize it. Provider adapter implementations are unchanged
+in this core increment.
 
 ## Shared Network default gateways and DNS
 

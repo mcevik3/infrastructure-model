@@ -484,6 +484,10 @@
         "networkRef": {
           "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/networkRef"
         },
+        "adapterGroup": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/name",
+          "description": "Node-local identity for attachments that must share one allocatable network adapter/component."
+        },
         "addresses": {
           "type": "array",
           "items": {
