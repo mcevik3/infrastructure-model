@@ -17,7 +17,7 @@ dev = ["pytest>=8.0", "build>=1.2"]
 infra-model = "infra_model.cli:main"
 
 [tool.setuptools]
-packages = ["infra_model", "infra_model._schemas"]
+packages = ["infra_model", "infra_model._schemas", "infra_model.adapters", "infra_model.adapters.fabric"]
 package-dir = {infra_model = "src/infra_model", "infra_model._schemas" = "schema/v0alpha1"}
 
 [tool.setuptools.package-data]

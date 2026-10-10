@@ -1,5 +1,6 @@
 include README.md
 recursive-include docs *.md
 recursive-include examples *.y*ml
+recursive-include adapter-configs *.y*ml
 recursive-include schema *.json *.py
-recursive-include tests *.py
+recursive-include tests *.py *.yaml

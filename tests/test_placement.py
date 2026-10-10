@@ -13,6 +13,7 @@ def placed(documents, inventory, amst_network_scope):
     node["realization"] = {"type": "baremetal"}
     node["placement"] = {"resourceRef": "server/amst-w2", "siteRef": "site/AMST"}
     node["requirements"]["compute"]["cpu"] = {"count": 4, "unit": "core"}
+    node["requirements"]["compute"]["architecture"] = "x86_64"
     return documents, inventory, node
 
 

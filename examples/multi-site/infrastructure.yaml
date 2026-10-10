@@ -27,15 +27,30 @@ metadata:
   name: multi-site
 spec:
   siteRef: site/site-a
+  image: {name: Rocky Linux, version: '9'}
   nodes:
     - name: vm-a
       realization: {type: vm}
+      requirements:
+        compute:
+          cpu: {count: 2, unit: vcpu}
+        memory:
+          capacity: {value: 4, unit: GiB}
+        storage:
+          capacity: {value: 20, unit: GiB}
       networkAttachments:
         - name: data
           networkRef: network/multi-site-data
           interfaceRequirements: {type: ethernet}
     - name: vm-b
       realization: {type: vm}
+      requirements:
+        compute:
+          cpu: {count: 2, unit: vcpu}
+        memory:
+          capacity: {value: 4, unit: GiB}
+        storage:
+          capacity: {value: 20, unit: GiB}
       placement:
         siteRef: site/site-b
       networkAttachments:

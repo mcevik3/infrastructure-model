@@ -125,6 +125,7 @@ def test_cli_warnings(documents, inventory, tmp_path, capsys, amst_network_scope
     inventory["Cluster/openstack-lab"]["spec"]["nodes"] = [node]
     node.update(realization={"type": "baremetal"}, placement={"resourceRef": "server/amst-w2", "siteRef": "site/AMST"})
     inventory["Server/amst-w2"]["spec"].pop("profileRef")
+    node["requirements"]["compute"]["architecture"] = "x86_64"
     file = tmp_path / "warnings.yaml"
     file.write_text(yaml.safe_dump_all(documents))
     assert main(["validate", str(file)]) == 0

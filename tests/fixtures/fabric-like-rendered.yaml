@@ -1,0 +1,111 @@
+site_topology_nodes:
+  nodes:
+    node1:
+      name: controller-1
+      hostname: controller-1
+      site: SRI
+      worker: ''
+      capacity:
+        cpu: 4
+        ram: 16
+        disk: 80
+        os: default_rocky_9
+      pci:
+        dpu: {}
+        fpga: {}
+        gpu: {}
+        nvme: {}
+        network:
+          nic1:
+            name: nic1
+            model: NIC_Basic
+            interfaces:
+              iface1:
+                device: eth1
+                connection: conn-eth1
+                binding: lab-management
+                ipv4:
+                  address: 192.0.2.11/24
+                  gateway: 192.0.2.1
+                  dns: 192.0.2.53
+          nic2:
+            name: nic2
+            model: NIC_Basic
+            interfaces:
+              iface1:
+                device: eth2
+                connection: conn-eth2
+                binding: lab-storage
+                ipv4:
+                  address: 198.51.100.11/24
+      persistent_storage:
+        volume: {}
+      specific:
+        openstack:
+          control: 'true'
+          network: 'true'
+          compute: 'false'
+          storage: 'true'
+    node2:
+      name: compute-1
+      hostname: compute-1
+      site: SRI
+      worker: ''
+      capacity:
+        cpu: 8
+        ram: 32
+        disk: 200
+        os: default_rocky_9
+      pci:
+        dpu: {}
+        fpga: {}
+        gpu: {}
+        nvme: {}
+        network:
+          nic1:
+            name: nic1
+            model: NIC_Basic
+            interfaces:
+              iface1:
+                device: eth1
+                connection: conn-eth1
+                binding: lab-management
+                ipv4:
+                  address: 192.0.2.21/24
+                  gateway: 192.0.2.1
+                  dns: 192.0.2.53
+          nic2:
+            name: nic2
+            model: NIC_Basic
+            interfaces:
+              iface1:
+                device: eth2
+                connection: conn-eth2
+                binding: lab-storage
+                ipv4:
+                  address: 198.51.100.21/24
+      persistent_storage:
+        volume: {}
+      specific:
+        openstack:
+          control: 'false'
+          network: 'false'
+          compute: 'true'
+          storage: 'false'
+site_topology_networks:
+  networks:
+    net1:
+      name: lab-management
+      type: L2Bridge
+      subnet:
+        ipv4:
+          address: 192.0.2.0/24
+          gateway: 192.0.2.1
+    net2:
+      name: lab-storage
+      type: L2Bridge
+      subnet:
+        ipv4:
+          address: 198.51.100.0/24
+site_topology_facility_ports:
+  facility_ports: {}

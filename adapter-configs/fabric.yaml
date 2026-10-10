@@ -1,0 +1,10 @@
+apiVersion: infra.model.fabric/v0alpha1
+kind: FabricAdapterConfig
+sites:
+  site/lab-site: SRI
+  site/site-a: SRI
+  site/site-b: UKY
+images:
+  - name: Rocky Linux
+    version: "9"
+    fabricImage: default_rocky_9

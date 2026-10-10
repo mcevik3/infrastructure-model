@@ -97,9 +97,11 @@ including ClusterNode. The build packages those same files as
 `infra_model._schemas`, so installed wheels validate offline without finding a
 repository checkout or downloading schemas.
 
-No provider adapters, provisioning engine, scheduling, aggregate allocation,
-resource delegation, FIM NetworkService, or graph database integration are
-implemented. Exact placement checks compare each node with declared capabilities;
+An [offline FABRIC adapter](docs/fabric-adapter.md) renders supported VM intent
+into historical fabric-generic-cluster YAML. No live provider operations,
+provisioning engine, scheduling, aggregate allocation, resource delegation,
+FIM NetworkService, or graph database integration are implemented.
+Exact placement checks compare each node with declared capabilities;
 they do not prove live availability, image compatibility, routing, or deployability.
 
 ClusterNode execution form is `realization.type: vm` or `baremetal`. CPU demand
@@ -190,3 +192,21 @@ are unspecified, while explicit empty lists mean no gateways or DNS servers.
 Node-specific addresses remain on network attachments. See
 [logical networking](docs/model-v0alpha1.md#logical-networking-and-deployment-intent)
 for the dual-stack example, validation rules, and future adapter consumption.
+
+Offline FABRIC rendering uses a separate identity-mapping configuration:
+
+```sh
+infra-model render fabric examples/fabric-like/ --config adapter-configs/fabric.yaml
+infra-model render fabric examples/multi-site/ --config adapter-configs/fabric.yaml
+```
+
+The adapter exposes `FabricAdapterConfig`, `FabricTranslationError`, and
+`render_fabric()` from `infra_model.adapters.fabric`. It renders plain Ethernet
+VMs with exact image/capacity mappings, using actual endpoint sites to select
+`L2Bridge` or `L2STS`. Unsupported intent fails explicitly. YAML goes to stdout;
+warnings and errors go to stderr. The [config example](adapter-configs/fabric.yaml)
+lives outside the generic examples tree so recursive validation is unchanged.
+See the [adapter guide](docs/fabric-adapter.md) for limits, the private rendering
+pipeline, and optional `workers` identity mappings for VM `placement.hostRef`.
+The adapter accepts x86_64 requirements and tolerates opaque namespaced extensions;
+the FABRIC-like source example and generic core semantics remain unchanged.

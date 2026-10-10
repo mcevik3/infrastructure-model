@@ -335,7 +335,7 @@ the two allowed sites, with only the existing abstract-placement UNKNOWN warning
 
 - Filesystem definitions, creation/formatting/provisioning, mount points, fstab,
   NixOS filesystem configuration, Ansible storage roles, and Ansible/Nix renderers.
-- FABRIC, Redfish, Dell/iDRAC, AMD firmware, NetBox, Chameleon, and FIM adapters.
+- Live FABRIC operations; Redfish, Dell/iDRAC, AMD firmware, NetBox, Chameleon, and FIM adapters.
 - Neo4j backend, FIM NetworkService, and resource delegation concepts.
 - Provider discovery, provisioning, lifecycle reconciliation, and persistence.
 - Effective-site derivation from VM `hostRef → Server → Site` or bare-metal
@@ -386,3 +386,43 @@ and inventory `located_at` relationships retain their meanings. Host identity
 does not imply runtime placement or prove compatibility/available VM capacity;
 the existing UNKNOWN compatibility behavior remains. This change adds no provider
 adapter behavior, hypervisor scheduling, or observed host state.
+
+## Offline FABRIC adapter v0.1
+
+The offline adapter lives in `infra_model.adapters.fabric`, separately from core
+schema, reference resolution, and placement semantics. Its public API is
+`FabricAdapterConfig`, `FabricTranslationError`, and `render_fabric()`. The
+translator resolves supported intent into private immutable plan records; the
+renderer formats the historical fabric-generic-cluster dictionary. CLI YAML goes
+to stdout, with warnings/errors on stderr. No live provider operations occur.
+
+Omitted architecture and explicit x86_64 are accepted as compatibility conditions.
+No architecture output field is added. Other explicit architectures, CPU frequency,
+and unsupported storage constraints fail. Unconsumed namespaced extensions are
+opaque metadata: tolerated, uninterpreted, omitted from target output, and preserved
+in source. The adapter assigns no semantics to `fabric.example/intent`. These rules
+allow the unchanged FABRIC-like example to render with its architecture and experiment
+extension intact. Actual unsupported generic core intent still fails explicitly.
+
+Optional `FabricAdapterConfig.workers` maps canonical Server references to nonempty
+FABRIC worker identifiers. VM `placement.hostRef` must have an explicit mapping
+when rendered; its mapped value becomes historical `worker`. With no hostRef the
+private node plan stores `None` and the renderer emits `worker: ''`. Unused mappings
+are allowed, and there is no defaultWorker or implicit mapping from Server names,
+Sites, inventory, or extensions.
+
+The exact-VM-host decisions above remain authoritative. Core validation resolves
+host references and checks host/site consistency. The adapter uses the existing
+node-site override/Cluster-default rule without deriving Site from hostRef or
+worker mappings. Identity translation neither chooses hosts nor proves capacity,
+availability, or schedulability. Live worker discovery remains deferred.
+
+Existing v0.1 limits remain: actual mapped endpoint sites select `L2Bridge` for
+one site and `L2STS` for two, independently of Network.siteRefs length. Plain
+Ethernet maps to NIC_Basic. Dedicated NICs, device requirements, layer3,
+point-to-point, excessive prefix/address/DNS multiplicity, and unrepresentable
+capacities fail explicitly. Components contain interface tuples; a network
+attachment is not universally equivalent to a physical NIC/component.
+
+See the [adapter guide](fabric-adapter.md) for configuration, CLI usage, and the
+complete offline rendering contract.

@@ -617,7 +617,7 @@ OpenStack control, network, storage, and compute responsibilities.
 | `binding` | `networkAttachments[].networkRef` |
 | Provider network service | Network `layer`, `connectivity`, effective endpoint sites, and resolved endpoint/interface capabilities inform future adapter selection |
 | OpenStack role booleans | Semantic roles such as `openstack.control`, `openstack.network`, `openstack.storage`, `openstack.compute` |
-| NetworkManager device/connection names | Future OS configuration adapter |
+| NetworkManager device/connection names | FABRIC renderer policy for historical guest configuration; no generic source fields |
 | Ansible-specific fields | Future Ansible adapter |
 | `postboot` | Future provisioning/configuration layer |
 | SELinux settings | OS configuration policy |
@@ -636,20 +636,20 @@ The adapter design rule is:
 > adapter decides which provider-specific NIC/component model satisfies that
 > requirement.
 
-For FABRIC, ordinary Ethernet may initially map to `NIC_Basic`. Future adapter
+The [offline FABRIC adapter](fabric-adapter.md) maps ordinary Ethernet to `NIC_Basic`. Future adapter
 design must also account for dedicated NIC components such as ConnectX-6 and
 one physical NIC/component exposing multiple interfaces. It must not assume
 `one networkAttachment == one FABRIC NIC component`.
 
-A future adapter can combine `Network.spec.prefixes`,
+The offline adapter combines `Network.spec.prefixes`,
 `Network.spec.defaultGateways`, `Network.spec.dns`, and each attachment's
 `addresses` to render interface address/prefix, default gateway, and DNS servers.
 Shared Network configuration may then be expanded into provider-specific
 per-interface configuration while preserving the omitted/empty distinction.
-Selection of a prefix where several overlap and provider/OS rendering policy
-remain adapter work. This documents future consumption only: no FABRIC rendering,
-FABlib calls, NIC translation, guest interface names, or NetworkManager connection
-names are added to the core.
+The historical target supports at most one prefix per family; multiple or ambiguous
+prefixes fail translation. Provider service and guest naming policy belong to the
+adapter, with no FABlib calls or provider fields added to the generic core. See
+the [adapter contract](fabric-adapter.md) for the supported offline subset.
 
 Hostname behavior and Cluster image behavior are unchanged. The committed
 v0alpha1 already accepted node-level `image`; this extension preserves that
