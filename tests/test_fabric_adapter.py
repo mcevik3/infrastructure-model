@@ -440,7 +440,7 @@ def test_persistent_storage_intent_fails(source, config):
 
 
 @pytest.mark.parametrize("field,value", [("layer", "layer3"), ("connectivity", "point-to-point")])
-def test_unsupported_network_types(source, config, field, value):
+def test_unsupported_layer_or_ineligible_point_to_point(source, config, field, value):
     network(source)["spec"][field] = value
     with pytest.raises(FabricTranslationError):
         render(source, config)

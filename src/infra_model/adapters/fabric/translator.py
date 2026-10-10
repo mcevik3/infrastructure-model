@@ -1,5 +1,7 @@
 """Offline provider reasoning and representability checks for one Cluster."""
 
+from collections import Counter
+from dataclasses import dataclass
 from fractions import Fraction
 import ipaddress
 
@@ -18,6 +20,19 @@ from .plan import (
 _BYTE_FACTORS = {"B": 1, "kB": 1000, "MB": 1000**2, "GB": 1000**3, "TB": 1000**4,
                  "KiB": 1024, "MiB": 1024**2, "GiB": 1024**3, "TiB": 1024**4}
 _ROLES = {"openstack.control", "openstack.network", "openstack.compute", "openstack.storage"}
+
+
+@dataclass(frozen=True)
+class _ComponentRealization:
+    model: str
+    members: tuple[tuple[int, Entry], ...]
+
+
+@dataclass(frozen=True)
+class _EndpointRealization:
+    attachment: Entry
+    site: str
+    component: _ComponentRealization
 
 
 def _fail(entry: Entry, path: str, reason: str):
@@ -56,12 +71,35 @@ def _node_capacity(node: Entry) -> tuple[int, int, int]:
     return int(cpu["count"]), _gib(node, "memory"), _gib(node, "storage")
 
 
-def _network(entry: Entry, sites: set[str]) -> _FabricNetworkPlan:
+def _network(entry: Entry, endpoints: list[_EndpointRealization], selected_cluster: str,
+             global_endpoint_count: int) -> _FabricNetworkPlan:
     spec = entry.data["spec"]
     if spec.get("layer") != "layer2":
         _fail(entry, "/spec/layer", "only explicit layer2 Networks are supported")
-    if spec.get("connectivity", "multipoint") != "multipoint":
-        _fail(entry, "/spec/connectivity", "point-to-point / L2PTP realization remains deferred")
+    sites = {endpoint.site for endpoint in endpoints}
+    if spec.get("connectivity", "multipoint") == "point-to-point":
+        if len(endpoints) != global_endpoint_count:
+            _fail(entry, "/spec/connectivity",
+                  f"selected Cluster {selected_cluster} does not contain all L2PTP endpoints: "
+                  f"renders {len(endpoints)} of {global_endpoint_count} NetworkAttachments")
+        if len(endpoints) != 2:
+            _fail(entry, "/spec/connectivity",
+                  f"point-to-point / L2PTP requires exactly two rendered NetworkAttachments; found {len(endpoints)}")
+        if len(sites) != 2:
+            _fail(entry, "/spec/connectivity",
+                  f"L2PTP requires exactly two distinct effective FABRIC sites; found {len(sites)}")
+        for endpoint in endpoints:
+            if endpoint.component.model != "NIC_ConnectX_6":
+                _fail(endpoint.attachment, "/interfaceRequirements",
+                      f"L2PTP requires a supported dedicated interface (NIC_ConnectX_6); resolved {endpoint.component.model}")
+            if "addresses" in endpoint.attachment.data:
+                _fail(endpoint.attachment, "/addresses",
+                      "L2PTP guest VLAN/IP configuration is not yet supported; omit attachment addresses, including empty lists")
+        for field in ("prefixes", "defaultGateways", "dns"):
+            if field in spec:
+                _fail(entry, f"/spec/{field}",
+                      f"L2PTP guest VLAN/IP configuration is not yet supported; omit Network {field}, including empty configuration")
+        return _FabricNetworkPlan(entry.data["metadata"]["name"], "L2PTP", (), None, None)
     if len(sites) not in {1, 2}:
         _fail(entry, "/spec", f"multipoint layer2 requires one or two effective FABRIC endpoint sites; found {len(sites)}")
     service = "L2Bridge" if len(sites) == 1 else "L2STS"
@@ -127,8 +165,7 @@ def _component_model(members: list[tuple[int, Entry]]) -> str:
     return "NIC_ConnectX_6"
 
 
-def _components(node: Entry, registry: Registry,
-                networks: dict[str, _FabricNetworkPlan]) -> tuple[_FabricNetworkComponentPlan, ...]:
+def _resolve_components(node: Entry, registry: Registry) -> tuple[_ComponentRealization, ...]:
     """Collect node-local groups in first-use order before resolving their intent."""
     components: list[list[tuple[int, Entry]]] = []
     groups: dict[str, int] = {}
@@ -141,13 +178,19 @@ def _components(node: Entry, registry: Registry,
             if group is not None:
                 groups[group] = len(components)
             components.append([member])
+    return tuple(_ComponentRealization(_component_model(members), tuple(members)) for members in components)
+
+
+def _components(realizations: tuple[_ComponentRealization, ...],
+                networks: dict[str, _FabricNetworkPlan]) -> tuple[_FabricNetworkComponentPlan, ...]:
+    """Complete interface addressing after service selection; do not re-resolve NICs."""
     return tuple(
         _FabricNetworkComponentPlan(
-            _component_model(members),
+            component.model,
             tuple(_interface(attachment, networks[attachment.data["networkRef"]], ordinal)
-                  for ordinal, attachment in members),
+                  for ordinal, attachment in component.members),
         )
-        for members in components
+        for component in realizations
     )
 
 
@@ -198,7 +241,9 @@ def _translate(model: InfrastructureModel, *, cluster: str | None, config: Fabri
     # Only the selected Cluster's endpoints are part of this rendered topology.
     nodes = [registry.entries[node["id"]] for node in spec["nodes"]]
     sites = {}
-    network_sites: dict[str, set[str]] = {}
+    node_components: dict[str, tuple[_ComponentRealization, ...]] = {}
+    network_endpoints: dict[str, list[_EndpointRealization]] = {}
+    global_endpoint_counts = Counter(attachment.data["networkRef"] for attachment in registry.of_kind("NetworkAttachment"))
     for node in nodes:
         if node.data["realization"]["type"] != "vm":
             _fail(node, "/realization/type", "only vm realization is supported; exact-resource site derivation is deferred")
@@ -210,10 +255,16 @@ def _translate(model: InfrastructureModel, *, cluster: str | None, config: Fabri
         if generic_site not in config.sites:
             _fail(node, "/placement/siteRef", f"no adapter site mapping for {generic_site}")
         sites[node.id] = config.sites[generic_site]
-        for attachment in node.data.get("networkAttachments", []):
-            network_sites.setdefault(attachment["networkRef"], set()).add(sites[node.id])
-    networks = {reference: _network(registry.entries[reference], occupied)
-                for reference, occupied in network_sites.items()}
+        node_components[node.id] = _resolve_components(node, registry)
+        component_by_attachment = {attachment.id: component for component in node_components[node.id]
+                                   for _, attachment in component.members}
+        # Network first use follows authored attachments, even for interleaved groups.
+        for data in node.data.get("networkAttachments", []):
+            attachment = registry.entries[data["id"]]
+            endpoint = _EndpointRealization(attachment, sites[node.id], component_by_attachment[attachment.id])
+            network_endpoints.setdefault(data["networkRef"], []).append(endpoint)
+    networks = {reference: _network(registry.entries[reference], endpoints, selected.id, global_endpoint_counts[reference])
+                for reference, endpoints in network_endpoints.items()}
     plans = []
     for node in nodes:
         cpu, ram, disk = _node_capacity(node)
@@ -235,7 +286,7 @@ def _translate(model: InfrastructureModel, *, cluster: str | None, config: Fabri
             if host_ref not in config.workers:
                 _fail(node, "/placement/hostRef", f"no adapter worker mapping for {host_ref}")
             worker = config.workers[host_ref]
-        components = _components(node, registry, networks)
+        components = _components(node_components[node.id], networks)
         plans.append(_FabricNodePlan(node.data["name"], sites[node.id], cpu, ram, disk, config.images[identity],
                                      tuple(role.removeprefix("openstack.") for role in roles), components, worker=worker))
     return _FabricRenderPlan(tuple(plans), tuple(networks.values()))

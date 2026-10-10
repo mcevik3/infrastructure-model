@@ -1,0 +1,61 @@
+apiVersion: infra.model/v0alpha1
+kind: Site
+metadata:
+  name: site-a
+spec: {}
+---
+apiVersion: infra.model/v0alpha1
+kind: Site
+metadata:
+  name: site-b
+spec: {}
+---
+apiVersion: infra.model/v0alpha1
+kind: Network
+metadata:
+  name: ptp-data
+spec:
+  layer: layer2
+  connectivity: point-to-point
+  siteRefs: [site/site-a, site/site-b]
+---
+apiVersion: infra.model/v0alpha1
+kind: Cluster
+metadata:
+  name: l2ptp
+spec:
+  siteRef: site/site-a
+  image: {name: Rocky Linux, version: '9'}
+  nodes:
+    - name: vm-a
+      realization: {type: vm}
+      requirements:
+        compute:
+          architecture: x86_64
+          cpu: {count: 2, unit: vcpu}
+        memory:
+          capacity: {value: 4, unit: GiB}
+        storage:
+          capacity: {value: 20, unit: GiB}
+      networkAttachments:
+        - name: data
+          networkRef: network/ptp-data
+          interfaceRequirements:
+            type: ethernet
+            adapter: {class: standard, vendor: NVIDIA, model: ConnectX-6}
+    - name: vm-b
+      realization: {type: vm}
+      placement: {siteRef: site/site-b}
+      requirements:
+        compute:
+          cpu: {count: 2, unit: vcpu}
+        memory:
+          capacity: {value: 4, unit: GiB}
+        storage:
+          capacity: {value: 20, unit: GiB}
+      networkAttachments:
+        - name: data
+          networkRef: network/ptp-data
+          interfaceRequirements:
+            type: ethernet
+            adapter: {class: standard, model: ConnectX-6}

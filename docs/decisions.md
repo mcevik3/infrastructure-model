@@ -507,3 +507,43 @@ ungrouped management and grouped data/storage using existing Site/image mappings
 Keeping it outside the recursively loaded examples avoids duplicate Site identity.
 The v0.1 manual acceptance record above is unchanged; it is not evidence of
 downstream acceptance or provisioning of this new dedicated-NIC realization.
+
+## Offline FABRIC L2PTP v0.1
+
+Generic point-to-point semantics and core schemas remain unchanged: zero, one,
+or two NetworkAttachments are valid partial intent. The FABRIC adapter requires
+an explicit layer2 point-to-point Network with exactly two rendered attachments
+in the selected Cluster, exactly two distinct effective FABRIC sites after
+mapping, and supported dedicated interfaces at both endpoints. Currently only
+resolved NIC_ConnectX_6 interfaces qualify; NIC_Basic does not. Successful
+eligibility produces `L2PTP`, never an automatic multipoint downgrade or NIC upgrade.
+
+The translator now resolves private component/endpoint realization records before
+Network service selection. The resolver reads each endpoint's mapped site and
+resolved component, including identity supplied by another adapterGroup member.
+Component resolution is not repeated in the renderer. Existing private render
+plan fields, public API/config, and deterministic node, Network, component,
+interface, and guest naming rules remain unchanged.
+
+Endpoint counts are logical NetworkAttachments, not adapter groups/components.
+A grouped ConnectX-6 may use its other interface for another Network; the whole
+component need not be exclusive to L2PTP. A selected Cluster containing only one
+of two global endpoints fails with an explicit completeness diagnostic. Networks
+used exclusively by other Clusters are not selected. Completely unattached
+Networks, including layer2 point-to-point declarations, are also unselected and
+ignored. Only Networks referenced by the selected Cluster undergo provider
+eligibility checks; a selected one-endpoint point-to-point Network still fails.
+Multipoint Network selection and L2Bridge/L2STS service behavior remain unchanged.
+
+This first provider realization is addressless/topology-only because L2PTP
+traffic arrives VLAN-tagged and guest VLAN subinterfaces are not yet modeled or
+rendered. Any declared Network prefixes/defaultGateways/dns or endpoint addresses,
+including explicit empty configuration, fail with a VLAN/IP support diagnostic.
+Output has no subnet, IP-family blocks, VLAN IDs, or VLAN configuration. These
+are adapter restrictions, not new generic point-to-point rules.
+
+Future design: model/render guest VLAN subinterfaces for tagged L2PTP traffic.
+No static IP handling, VLAN allocation, live discovery, availability checks, or
+submission is added. The [fixture](../tests/fixtures/fabric-l2ptp.yaml) uses existing
+Site/image mappings and provider-neutral source intent. Earlier manual downstream
+acceptance does not establish acceptance or runtime correctness for L2PTP.

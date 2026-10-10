@@ -8,7 +8,8 @@ render describes intent and does not prove deployability.
 
 Version 0.2 adds exact ConnectX-6 component realization and consumes node-local
 `adapterGroup` intent. Existing plain Ethernet renders and the public API/config
-remain unchanged.
+remain unchanged. The first L2PTP increment adds addressless point-to-point
+topology for two dedicated endpoints at two sites.
 
 The adapter either represents supported intent faithfully or raises
 `FabricTranslationError`. It never rounds capacities, guesses placement/images,
@@ -42,6 +43,12 @@ topology decisions belong to the translator. The renderer only formats resolved
 plan data; it does not resolve references, select services, match prefixes, or
 choose images. No new infrastructure schema, NetworkX object, or provider SDK
 object is exposed.
+
+Within the translator, private component and endpoint realization records are
+resolved before Network service selection. Each endpoint identifies its mapped
+site and resolved component. This lets L2PTP inspect actual provider realization
+without guessing from generic Ethernet requirements or rendered YAML. Components
+are resolved once; interface addressing is completed after service selection.
 
 The private plan contains frozen node, network, gateway, prefix, component,
 interface, and address records using tuples. A network component contains an
@@ -221,22 +228,24 @@ One networkAttachment must not be assumed universally to equal one physical
 NIC/component. Grouping changes component realization only; logical endpoint
 counts, network bindings, addresses, prefixes, gateways, and DNS remain independent
 for each attachment. Dedicated interfaces use the same network-service resolver
-as ordinary Ethernet. L2PTP remains deferred despite dedicated NIC support.
+as ordinary Ethernet; only supported dedicated interfaces qualify for L2PTP.
 
 ## Network service and addressing
 
 Only Networks referenced by the selected Cluster's attachments are rendered.
 The translator uses the actual effective sites of those rendered endpoints,
 translated through the config to FABRIC identities. Multiple generic references
-mapped to the same FABRIC site count as one provider site. Unrelated Clusters,
-inventory, and Networks do not determine this rendered topology's service.
+mapped to the same FABRIC site count as one provider site. Inventory and declared
+scope do not determine endpoint occupancy. Multipoint continues to use only the
+selected Cluster's endpoints, even when other Clusters use the same Network.
 
 | Network intent | Rendered service |
 | --- | --- |
 | Explicit layer2, omitted/explicit multipoint, one effective FABRIC endpoint site | `L2Bridge` |
 | Explicit layer2, omitted/explicit multipoint, two effective FABRIC endpoint sites | `L2STS` |
 | More than two effective endpoint sites | Translation error |
-| Point-to-point | Translation error; L2PTP remains deferred |
+| Explicit layer2, point-to-point, exactly two complete dedicated endpoints at exactly two effective FABRIC sites, no L3 configuration | `L2PTP` |
+| Other point-to-point combinations | Translation error; no downgrade to a multipoint service |
 | Layer3 or unspecified layer | Translation error |
 
 `Network.siteRefs` declares allowed scope, already enforced by core validation.
@@ -246,7 +255,48 @@ Core graph semantics remain `scoped_to` for Network scope, `targets_site` for
 effective desired node placement, and `located_at` for physical inventory.
 Provider service names stay out of core schemas.
 
-Each rendered Network supports at most one IPv4 and one IPv6 prefix. Each
+### L2PTP v0.1: addressless topology
+
+Generic `point-to-point` remains provider-neutral and allows zero, one, or two
+NetworkAttachments for partial composition. FABRIC L2PTP requires exactly two
+rendered attachments, both in the selected Cluster, at exactly two distinct
+effective FABRIC sites. Site mapping happens before distinctness is checked;
+two generic Sites mapped to one FABRIC Site do not qualify. Network.siteRefs
+length does not establish eligibility.
+
+If a referenced point-to-point Network has another endpoint in an unselected
+Cluster, rendering fails with a selected-Cluster completeness error. Networks
+used only by other Clusters remain outside the render. Completely unattached
+Networks, including point-to-point declarations, are unreferenced and ignored.
+A selected point-to-point Network with one endpoint still fails provider
+eligibility. Multipoint selection is unchanged.
+
+Both endpoint interfaces must belong to resolved `NIC_ConnectX_6` components.
+NIC_Basic does not qualify, and plain Ethernet is never upgraded automatically.
+An endpoint may be one port of a grouped component whose other port serves a
+different Network. Its dedicated identity may come from a compatible selector
+on another group member. Counts always use NetworkAttachments referencing this
+Network, not adapter groups/components; whole-component exclusivity is not
+required. Invalid point-to-point intent is never downgraded to L2Bridge or L2STS.
+
+FABRIC L2PTP traffic arrives VLAN-tagged and requires a guest VLAN subinterface.
+The current model/renderer does not configure that subinterface, so this first
+L2PTP realization is **topology-only and addressless**. Rendering fails if the
+Network declares `prefixes`, `defaultGateways`, or `dns`, or either endpoint
+declares `addresses`. Presence is rejected even for empty lists/configuration.
+These restrictions belong only to FABRIC L2PTP v0.1; generic point-to-point
+addressing remains valid in core.
+
+The Network output contains `name` and `type: L2PTP`, with no `subnet`. Endpoint
+interfaces retain normal `device`, `connection`, and Network-name `binding`
+fields, without IP blocks or VLAN configuration. No VLAN ID is invented.
+Future design: model/render guest VLAN subinterfaces for tagged L2PTP traffic
+before supporting static IP configuration. Offline eligibility does not prove
+availability, provisioning, or runtime network correctness.
+
+### Multipoint addressing
+
+Each rendered multipoint Network supports at most one IPv4 and one IPv6 prefix. Each
 attachment supports at most one address of each family. Every address must match
 exactly one declared prefix of the same family; no longest-prefix fallback exists.
 Zero addresses is valid for L2. Core-invalid addresses are rejected before
@@ -290,6 +340,8 @@ infra-model render fabric examples/multi-site/ \
   --config adapter-configs/fabric.yaml --cluster cluster/multi-site
 infra-model render fabric tests/fixtures/fabric-dedicated-nic.yaml \
   --config adapter-configs/fabric.yaml
+infra-model render fabric tests/fixtures/fabric-l2ptp.yaml \
+  --config adapter-configs/fabric.yaml
 infra-model render fabric examples/ \
   --config adapter-configs/fabric.yaml --cluster openstack-lab > _slice_topology.yml
 ```
@@ -308,7 +360,12 @@ It reuses the existing Site/image mappings without changing adapter config.
 It lives outside `examples/` because its self-contained `site/lab-site` document
 would duplicate the existing Site during recursive example loading.
 
-Live FABRIC operations, facility ports, L2PTP, other dedicated NIC models, device rendering,
+The [L2PTP fixture](../tests/fixtures/fabric-l2ptp.yaml) contains two VMs at
+`site/site-a` and `site/site-b`, each with a ConnectX-6 attachment to one addressless
+point-to-point Network. It uses the existing Site/image configuration and renders
+one L2PTP service with SRI and UKY endpoints.
+
+Live FABRIC operations, facility ports, L2PTP guest VLAN/IP configuration, other dedicated NIC models, device rendering,
 Layer-3 services, provider-managed addressing, DHCP, Ansible, postboot, SELinux,
 and filesystem/mount rendering remain outside this increment.
 
