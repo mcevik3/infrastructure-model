@@ -242,3 +242,26 @@ dictionaries and byte-identical CLI YAML.
 Live FABRIC operations, facility ports, L2PTP, dedicated NICs, device rendering,
 Layer-3 services, provider-managed addressing, DHCP, Ansible, postboot, SELinux,
 and filesystem/mount rendering remain outside this increment.
+
+## Manual downstream acceptance
+
+FABRIC adapter v0.1 output was manually tested through the existing
+fabric-generic-cluster workflow:
+
+```text
+provider-neutral infrastructure model
+    -> infra-model validation
+    -> infra-model render fabric
+    -> generated _slice_topology_*.yml
+    -> existing fabric-generic-cluster downstream tooling/notebook/library
+```
+
+The generated YAML was accepted by the existing downstream consumer without
+manual edits. For the documents exercised, this verifies that the offline
+renderer produces structurally compatible fabric-generic-cluster YAML and that
+the existing downstream parser/workflow accepts it. This manual integration
+acceptance is separate from automated test results.
+
+It does not prove live FABRIC resource availability, project permissions, slice
+submission success, actual resource provisioning, runtime/network correctness,
+or support for features outside adapter v0.1.

@@ -426,3 +426,10 @@ attachment is not universally equivalent to a physical NIC/component.
 
 See the [adapter guide](fabric-adapter.md) for configuration, CLI usage, and the
 complete offline rendering contract.
+
+Manual downstream acceptance confirmed that generated `_slice_topology_*.yml`
+documents were accepted by the existing fabric-generic-cluster workflow without
+hand modification. This records structural/parser compatibility for the documents
+tested, separately from automated test results; see the
+[acceptance note](fabric-adapter.md#manual-downstream-acceptance) for the verified
+path and the limits of this evidence.
