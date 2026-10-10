@@ -291,7 +291,9 @@ def test_plan_supports_multiple_interfaces_per_component_without_provider_resolu
     plan = _translate(InfrastructureModel.from_documents(source), cluster=None, config=config)
     first = plan.nodes[0]
     component = replace(first.components[0], interfaces=(first.components[0].interfaces[0], first.components[1].interfaces[0]))
-    changed = replace(plan, nodes=(replace(first, components=(component, first.components[1])),))
+    third_interface = replace(first.components[1].interfaces[0], attachment_ordinal=3)
+    third_component = replace(first.components[1], interfaces=(third_interface,))
+    changed = replace(plan, nodes=(replace(first, components=(component, third_component)),))
     rendered = nodes(_render(changed))["node1"]["pci"]["network"]
     assert rendered["nic1"]["interfaces"]["iface2"]["device"] == "eth2"
     assert rendered["nic2"]["interfaces"]["iface1"]["device"] == "eth3"

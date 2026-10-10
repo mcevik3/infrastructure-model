@@ -38,6 +38,7 @@ class _FabricAddressPlan:
 class _FabricInterfacePlan:
     network_name: str
     addresses: tuple[_FabricAddressPlan, ...]
+    attachment_ordinal: int
 
 
 @dataclass(frozen=True)

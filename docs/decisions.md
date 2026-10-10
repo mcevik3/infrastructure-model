@@ -453,7 +453,7 @@ node-site override/Cluster-default rule without deriving Site from hostRef or
 worker mappings. Identity translation neither chooses hosts nor proves capacity,
 availability, or schedulability. Live worker discovery remains deferred.
 
-Existing v0.1 limits remain: actual mapped endpoint sites select `L2Bridge` for
+The v0.1 contract uses actual mapped endpoint sites to select `L2Bridge` for
 one site and `L2STS` for two, independently of Network.siteRefs length. Plain
 Ethernet maps to NIC_Basic. Dedicated NICs, device requirements, layer3,
 point-to-point, excessive prefix/address/DNS multiplicity, and unrepresentable
@@ -469,3 +469,41 @@ hand modification. This records structural/parser compatibility for the document
 tested, separately from automated test results; see the
 [acceptance note](fabric-adapter.md#manual-downstream-acceptance) for the verified
 path and the limits of this evidence.
+
+## Offline FABRIC dedicated NIC realization v0.2
+
+The adapter now resolves exact generic `ConnectX-6` identity to `NIC_ConnectX_6`,
+with vendor omitted or exactly `NVIDIA`. Core's required adapter class remains
+`standard` for this resolver; SmartNIC/DPU and other classes are unsupported.
+No fuzzy matching, vendor-only model inference, or configurable NIC-model mapping
+is introduced. Generic schema, validation, and public adapter config are unchanged.
+
+Ungrouped dedicated attachments each create a separate component. For explicit
+node-local `adapterGroup`, the translator first collects all members and merges
+compatible identity selectors, then resolves one shared component. Partial
+selectors or members without adapter identity are accepted when the group
+identifies ConnectX-6. Identical requirements never imply grouping; equal group
+strings on different nodes are independent, and different groups stay separate.
+
+This FABRIC component supports one or two grouped interfaces; more than two fail
+without splitting the group. The limit belongs solely to provider realization.
+Groups without a supported dedicated model fail rather than falling back to
+separate NIC_Basic components or inventing a multi-interface NIC_Basic. Plain
+ungrouped Ethernet behavior is unchanged.
+
+Private component plans continue to contain interface tuples. Each interface now
+carries its authored node-global attachment ordinal. Components are numbered by
+first creation, interfaces within each component by member order, and guest
+`ethN`/`conn-ethN` by original attachment order even when groups are interleaved.
+Bindings and address/prefix/gateway/DNS data remain independent per interface.
+
+The existing L2Bridge/L2STS resolver is unchanged. Speed/features, RDMA, SR-IOV,
+automatic component selection, other dedicated models, devices, L2PTP, layer3,
+live discovery, availability checks, and submission remain deferred. The generic
+model describes WHAT is required; the FABRIC adapter decides HOW it is realized.
+
+A provider-neutral [fixture](../tests/fixtures/fabric-dedicated-nic.yaml) exercises
+ungrouped management and grouped data/storage using existing Site/image mappings.
+Keeping it outside the recursively loaded examples avoids duplicate Site identity.
+The v0.1 manual acceptance record above is unchanged; it is not evidence of
+downstream acceptance or provisioning of this new dedicated-NIC realization.

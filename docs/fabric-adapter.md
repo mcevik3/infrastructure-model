@@ -1,10 +1,14 @@
-# Offline FABRIC adapter v0.1
+# Offline FABRIC adapter v0.2
 
 The adapter renders one validated Cluster into an ordinary Python dictionary
 using the historical `fabric-generic-cluster` YAML structure. This increment is
 offline only: no FABlib imports, discovery, authentication, project lookup,
 availability checks, slice submission, or other live operations. A successful
 render describes intent and does not prove deployability.
+
+Version 0.2 adds exact ConnectX-6 component realization and consumes node-local
+`adapterGroup` intent. Existing plain Ethernet renders and the public API/config
+remain unchanged.
 
 The adapter either represents supported intent faithfully or raises
 `FabricTranslationError`. It never rounds capacities, guesses placement/images,
@@ -41,7 +45,9 @@ object is exposed.
 
 The private plan contains frozen node, network, gateway, prefix, component,
 interface, and address records using tuples. A network component contains an
-`interfaces` tuple, allowing a future component to expose multiple interfaces.
+`interfaces` tuple: a dedicated component can now carry two logical interfaces.
+Each interface retains its node-global authored attachment ordinal for guest
+naming, independently of component grouping.
 Network `default_gateways` and `dns_servers` preserve `None` for unspecified,
 `()` for explicitly empty, and tuples for configured values. Resolved addresses
 already contain their prefix length, gateway, and family-specific DNS server.
@@ -129,7 +135,7 @@ using rational arithmetic for SI/IEC quantities, with no rounding. The image
 mapping supplies `capacity.os`.
 
 Omitted architecture and `compute.architecture: x86_64` are supported. Explicit
-x86_64 is a compatibility precondition for the v0.1 FABRIC target; no architecture
+x86_64 is a compatibility precondition for the FABRIC target; no architecture
 field is fabricated in the historical output. Other explicit architectures, such
 as aarch64, fail. Explicit CPU frequency and disk medium/protocol constraints
 remain unsupported and fail, as do device requirements, persistent/block-storage
@@ -150,22 +156,72 @@ along with CPU/memory/disk demands, images, roles, attachments, and addresses.
 The multi-site example supplies explicit Rocky Linux 9 image and
 2-vCPU/4-GiB/20-GiB VM capacities. Neither example requires an exact host.
 
-Plain `interfaceRequirements: {type: ethernet}` produces a `NIC_Basic` component.
-An empty `features` list adds no constraint and is also accepted. Missing interface
-type, non-Ethernet types, speed constraints, nonempty features (including RDMA or
-SR-IOV), and any adapter class/vendor/model constraint fail. No device requirements
-are supported, including GPU, FPGA, storage/NVMe, or DPU requests; an empty devices
-list is valid.
+Plain `interfaceRequirements: {type: ethernet}` without `adapterGroup` continues
+to produce one `NIC_Basic` component. An empty `features` list adds no constraint
+and is also accepted. Ordinary Ethernet is never upgraded to dedicated hardware.
+Missing interface type, non-Ethernet types, speed constraints, and nonempty
+features (including RDMA or SR-IOV) still fail, even with a supported dedicated
+identity. No device requirements are supported, including GPU, FPGA,
+storage/NVMe, or DPU requests; an empty devices list is valid.
+
+## Dedicated ConnectX-6 and adapter groups
+
+The exact generic adapter model `ConnectX-6`, with vendor omitted or exactly
+`NVIDIA`, resolves to the FABRIC component model `NIC_ConnectX_6`. This is adapter
+capability resolution, not an external identity mapping; there is no `nicModels`
+configuration field. FABRIC component names stay out of the generic core schema.
+The existing core schema requires `class` whenever an adapter selector is present;
+this resolver accepts `standard` and rejects SmartNIC, DPU, and other classes.
+
+```yaml
+networkAttachments:
+  - name: data
+    networkRef: network/data
+    adapterGroup: highspeed-1
+    interfaceRequirements:
+      type: ethernet
+      adapter: {class: standard, vendor: NVIDIA, model: ConnectX-6}
+  - name: storage
+    networkRef: network/storage
+    adapterGroup: highspeed-1
+    interfaceRequirements:
+      type: ethernet
+      adapter: {class: standard, vendor: NVIDIA}
+```
+
+The translator merges compatible explicit identity selectors across all members
+of one node-local group before choosing its component. A member may omit adapter
+identity entirely if another identifies the supported model. The example above
+produces one `NIC_ConnectX_6` with `iface1` and `iface2`, bound independently to
+`data` and `storage`. Core validation still owns identity-conflict checks.
+
+Each ungrouped ConnectX-6 attachment gets its own component, using one interface;
+the second physical port may remain unused. Identical requirements do not imply
+sharing. Explicit groups on one node create separate components, and the same
+group string on another node is unrelated. One-member groups are supported.
+
+FABRIC `NIC_ConnectX_6` is dual-port: an explicit group may contain at most two
+attachments. Larger groups fail rather than being split. This is a provider
+realization limit, not a generic group cardinality rule. A group lacking a
+supported dedicated model also fails, even with only one member. Grouped plain
+Ethernet cannot be represented faithfully by the current one-interface
+`NIC_Basic` realization; the translator neither splits that group nor invents a
+dedicated component.
+
+Matching is exact. Incompatible vendors, vendor-only selection, ConnectX-5,
+ConnectX-7, and other models fail. A model identity does not prove requested speed
+or features: `minSpeed`, RDMA, SR-IOV, and other nonempty feature requirements
+remain unsupported on every group member. Automatic model selection, SmartNIC,
+DPU, port availability scheduling, and live inventory remain out of scope.
 
 > The generic model describes WHAT network capability is required; the FABRIC
 > adapter decides HOW that capability is realized.
 
 One networkAttachment must not be assumed universally to equal one physical
-NIC/component. This translator currently creates one `NIC_Basic` component per
-plain Ethernet attachment. Dedicated NIC/ConnectX-6 allocation and multi-interface
-physical NIC grouping remain deferred; the private component structure and guest
-naming policy already permit multiple interfaces without changing the renderer's
-topology responsibilities.
+NIC/component. Grouping changes component realization only; logical endpoint
+counts, network bindings, addresses, prefixes, gateways, and DNS remain independent
+for each attachment. Dedicated interfaces use the same network-service resolver
+as ordinary Ethernet. L2PTP remains deferred despite dedicated NIC support.
 
 ## Network service and addressing
 
@@ -180,7 +236,7 @@ inventory, and Networks do not determine this rendered topology's service.
 | Explicit layer2, omitted/explicit multipoint, one effective FABRIC endpoint site | `L2Bridge` |
 | Explicit layer2, omitted/explicit multipoint, two effective FABRIC endpoint sites | `L2STS` |
 | More than two effective endpoint sites | Translation error |
-| Point-to-point | Translation error; L2PTP and dedicated-interface realization are deferred |
+| Point-to-point | Translation error; L2PTP remains deferred |
 | Layer3 or unspecified layer | Translation error |
 
 `Network.siteRefs` declares allowed scope, already enforced by core validation.
@@ -211,10 +267,13 @@ Output contains `site_topology_nodes.nodes`, `site_topology_networks.networks`,
 and `site_topology_facility_ports.facility_ports: {}`. Nodes use `nodeN` keys in
 Cluster order and Networks use `netN` keys in first-attachment-use order. Network
 entries retain the generic name; interface `binding` uses that name, never `netN`.
-NIC keys/names follow attachment order (`nic1`, `nic2`, …), currently each with
-`iface1`. A small renderer policy counts guest interfaces across components to
-produce `eth1`/`conn-eth1`, `eth2`/`conn-eth2`, etc. No generic hostname or guest
-interface naming fields are added.
+Component keys/names (`nic1`, `nic2`, …) follow first-creation order: each ungrouped
+attachment or first occurrence of a group creates one component, and later group
+members append to it. `iface1`/`iface2` follow attachment order within that component.
+A small renderer policy uses each interface's original node-global attachment
+ordinal for `ethN`/`conn-ethN`. For authored order data (group A), management
+(ungrouped), storage (group A), `nic1` has `eth1` and `eth3`, and `nic2` has `eth2`.
+No generic hostname or guest interface naming fields are added.
 
 Each node emits its generic name as `name` and `hostname`, mapped `site`, a resolved
 `worker` (or `''` without hostRef), capacities, empty PCI `dpu`/`fpga`/`gpu`/`nvme` dictionaries, and
@@ -229,6 +288,8 @@ infra-model render fabric examples/fabric-like/ \
   --config adapter-configs/fabric.yaml
 infra-model render fabric examples/multi-site/ \
   --config adapter-configs/fabric.yaml --cluster cluster/multi-site
+infra-model render fabric tests/fixtures/fabric-dedicated-nic.yaml \
+  --config adapter-configs/fabric.yaml
 infra-model render fabric examples/ \
   --config adapter-configs/fabric.yaml --cluster openstack-lab > _slice_topology.yml
 ```
@@ -239,7 +300,15 @@ rendering, 1 for input/configuration/translation failure, and 2 for CLI usage
 errors. Rendering the same normalized model and config twice produces equal
 dictionaries and byte-identical CLI YAML.
 
-Live FABRIC operations, facility ports, L2PTP, dedicated NICs, device rendering,
+The [dedicated-NIC fixture](../tests/fixtures/fabric-dedicated-nic.yaml) uses only
+provider-neutral source intent: one VM, ungrouped management, and grouped
+data/storage attachments on three layer2 Networks. It renders `nic1` as
+`NIC_Basic` with `iface1`, and `nic2` as `NIC_ConnectX_6` with `iface1`/`iface2`.
+It reuses the existing Site/image mappings without changing adapter config.
+It lives outside `examples/` because its self-contained `site/lab-site` document
+would duplicate the existing Site during recursive example loading.
+
+Live FABRIC operations, facility ports, L2PTP, other dedicated NIC models, device rendering,
 Layer-3 services, provider-managed addressing, DHCP, Ansible, postboot, SELinux,
 and filesystem/mount rendering remain outside this increment.
 

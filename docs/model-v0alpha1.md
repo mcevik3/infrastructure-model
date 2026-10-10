@@ -706,10 +706,11 @@ The adapter design rule is:
 > adapter decides which provider-specific NIC/component model satisfies that
 > requirement.
 
-The [offline FABRIC adapter](fabric-adapter.md) maps ordinary Ethernet to `NIC_Basic`. Future adapter
-design must also account for dedicated NIC components such as ConnectX-6 and
-one physical NIC/component exposing multiple interfaces. It must not assume
-`one networkAttachment == one FABRIC NIC component`.
+The [offline FABRIC adapter](fabric-adapter.md) maps ordinary Ethernet to `NIC_Basic`
+and supports exact ConnectX-6 identity with node-local adapter grouping. Its
+provider-specific component and port limits are documented in the adapter guide,
+not core semantics. One physical NIC/component can expose multiple interfaces;
+adapters must not assume `one networkAttachment == one FABRIC NIC component`.
 
 The offline adapter combines `Network.spec.prefixes`,
 `Network.spec.defaultGateways`, `Network.spec.dns`, and each attachment's

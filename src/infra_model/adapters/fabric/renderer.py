@@ -4,19 +4,17 @@ from .plan import _FabricNodePlan, _FabricRenderPlan
 
 
 def _guest_interface_names(ordinal: int) -> tuple[str, str]:
-    """Guest names count interfaces across components, including future multi-port NICs."""
+    """Guest names follow authored attachment order, independently of components."""
     return f"eth{ordinal}", f"conn-eth{ordinal}"
 
 
 def _node(plan: _FabricNodePlan) -> dict:
     components = {}
-    ordinal = 0
     for index, component in enumerate(plan.components, 1):
         name = f"nic{index}"
         interfaces = {}
         for interface_index, interface in enumerate(component.interfaces, 1):
-            ordinal += 1
-            device, connection = _guest_interface_names(ordinal)
+            device, connection = _guest_interface_names(interface.attachment_ordinal)
             data = {"device": device, "connection": connection, "binding": interface.network_name}
             for address in interface.addresses:
                 family = {"address": f"{address.address}/{address.prefix_length}"}

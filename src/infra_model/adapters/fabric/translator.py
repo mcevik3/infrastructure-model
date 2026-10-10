@@ -61,7 +61,7 @@ def _network(entry: Entry, sites: set[str]) -> _FabricNetworkPlan:
     if spec.get("layer") != "layer2":
         _fail(entry, "/spec/layer", "only explicit layer2 Networks are supported")
     if spec.get("connectivity", "multipoint") != "multipoint":
-        _fail(entry, "/spec/connectivity", "point-to-point / L2PTP requires dedicated-interface realization and is deferred")
+        _fail(entry, "/spec/connectivity", "point-to-point / L2PTP realization remains deferred")
     if len(sites) not in {1, 2}:
         _fail(entry, "/spec", f"multipoint layer2 requires one or two effective FABRIC endpoint sites; found {len(sites)}")
     service = "L2Bridge" if len(sites) == 1 else "L2STS"
@@ -89,13 +89,69 @@ def _network(entry: Entry, sites: set[str]) -> _FabricNetworkPlan:
     return _FabricNetworkPlan(entry.data["metadata"]["name"], service, tuple(prefixes), gateways, dns)
 
 
-def _interface(attachment: Entry, network: _FabricNetworkPlan) -> _FabricInterfacePlan:
-    required = attachment.data.get("interfaceRequirements")
-    # An empty feature requirement adds no constraint; all other specialization fails.
-    if required is None or required.get("type") != "ethernet":
-        _fail(attachment, "/interfaceRequirements", "an explicit plain Ethernet interface requirement is required")
-    if "minSpeed" in required or "adapter" in required or required.get("features"):
-        _fail(attachment, "/interfaceRequirements", "specialized interface requirements cannot fall back to NIC_Basic")
+def _component_model(members: list[tuple[int, Entry]]) -> str:
+    """Resolve compatible identity selectors, never infer capability from a model."""
+    selectors: dict[str, str] = {}
+    owners: dict[str, Entry] = {}
+    for _, attachment in members:
+        required = attachment.data.get("interfaceRequirements")
+        if required is None or required.get("type") != "ethernet":
+            _fail(attachment, "/interfaceRequirements", "an explicit Ethernet interface requirement is required")
+        if "minSpeed" in required:
+            _fail(attachment, "/interfaceRequirements/minSpeed", "minSpeed interface requirements remain unsupported")
+        # An empty feature list adds no constraint, as with plain Ethernet.
+        if required.get("features"):
+            _fail(attachment, "/interfaceRequirements/features", "feature interface requirements remain unsupported")
+        adapter = required.get("adapter", {})
+        if "class" in adapter and adapter["class"] != "standard":
+            _fail(attachment, "/interfaceRequirements/adapter/class", "only standard adapter class interface requirements are supported")
+        # Core validation already rejects contradictory selectors in a group.
+        for field, value in adapter.items():
+            selectors[field] = value
+            owners[field] = attachment
+
+    first = members[0][1]
+    group = first.data.get("adapterGroup")
+    if not selectors and group is None:
+        return "NIC_Basic"
+    if "vendor" in selectors and selectors["vendor"] != "NVIDIA":
+        _fail(owners["vendor"], "/interfaceRequirements/adapter/vendor",
+              "dedicated interface requirements support only exact vendor NVIDIA")
+    if selectors.get("model") != "ConnectX-6":
+        context = f"adapterGroup {group!r}" if group is not None else "dedicated interface requirements"
+        _fail(owners.get("model", first), "/interfaceRequirements/adapter/model" if group is None or "model" in selectors else "/adapterGroup",
+              f"{context} requires exact model ConnectX-6; no dedicated adapter is inferred")
+    if len(members) > 2:
+        _fail(first, "/adapterGroup",
+              f"adapterGroup {group!r} has {len(members)} attachments; FABRIC NIC_ConnectX_6 supports at most two interfaces")
+    return "NIC_ConnectX_6"
+
+
+def _components(node: Entry, registry: Registry,
+                networks: dict[str, _FabricNetworkPlan]) -> tuple[_FabricNetworkComponentPlan, ...]:
+    """Collect node-local groups in first-use order before resolving their intent."""
+    components: list[list[tuple[int, Entry]]] = []
+    groups: dict[str, int] = {}
+    for ordinal, data in enumerate(node.data.get("networkAttachments", []), 1):
+        member = (ordinal, registry.entries[data["id"]])
+        group = data.get("adapterGroup")
+        if group is not None and group in groups:
+            components[groups[group]].append(member)
+        else:
+            if group is not None:
+                groups[group] = len(components)
+            components.append([member])
+    return tuple(
+        _FabricNetworkComponentPlan(
+            _component_model(members),
+            tuple(_interface(attachment, networks[attachment.data["networkRef"]], ordinal)
+                  for ordinal, attachment in members),
+        )
+        for members in components
+    )
+
+
+def _interface(attachment: Entry, network: _FabricNetworkPlan, ordinal: int) -> _FabricInterfacePlan:
     addresses = []
     families = set()
     dns = {ipaddress.ip_address(server).version: server for server in network.dns_servers or ()}
@@ -112,7 +168,7 @@ def _interface(attachment: Entry, network: _FabricNetworkPlan) -> _FabricInterfa
             _fail(attachment, path, f"address must match exactly one declared prefix; found {len(matches)} (no longest-prefix fallback)")
         prefix, plan = matches[0]
         addresses.append(_FabricAddressPlan(address.version, value, prefix.prefixlen, plan.gateway, dns.get(address.version)))
-    return _FabricInterfacePlan(network.name, tuple(addresses))
+    return _FabricInterfacePlan(network.name, tuple(addresses), ordinal)
 
 
 def _select_cluster(registry: Registry, cluster: str | None) -> Entry:
@@ -179,11 +235,7 @@ def _translate(model: InfrastructureModel, *, cluster: str | None, config: Fabri
             if host_ref not in config.workers:
                 _fail(node, "/placement/hostRef", f"no adapter worker mapping for {host_ref}")
             worker = config.workers[host_ref]
-        components = tuple(
-            _FabricNetworkComponentPlan("NIC_Basic", (_interface(registry.entries[attachment["id"]],
-                                                               networks[attachment["networkRef"]]),))
-            for attachment in node.data.get("networkAttachments", [])
-        )
+        components = _components(node, registry, networks)
         plans.append(_FabricNodePlan(node.data["name"], sites[node.id], cpu, ram, disk, config.images[identity],
                                      tuple(role.removeprefix("openstack.") for role in roles), components, worker=worker))
     return _FabricRenderPlan(tuple(plans), tuple(networks.values()))
