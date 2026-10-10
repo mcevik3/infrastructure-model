@@ -105,8 +105,16 @@ they do not prove live availability, image compatibility, routing, or deployabil
 ClusterNode execution form is `realization.type: vm` or `baremetal`. CPU demand
 uses `requirements.compute.cpu: {count: 4, unit: vcpu}` (`core` and `thread`
 express physical demand). `placement.resourceRef` selects an existing Server
-only for bare metal. VMs use site placement and requirements; physical cores
-do not prove vCPU capacity. Storage uses independent optional `medium` and
+only for bare metal. VM `placement.hostRef` optionally selects the exact physical
+Server/hypervisor requested to host the VM; it is mutually exclusive with
+`resourceRef`. `placement.siteRef` remains desired site placement, overriding the
+Cluster default. An exact host must match that effective site when supplied.
+Neither `hostRef` nor `resourceRef` derives a missing effective site; both possible
+derivations remain deferred. Host identity does not prove VM capacity compatibility
+or availability, and physical cores do not prove vCPU capacity.
+The graph uses `targets_host` for desired VM host placement, `targets_site` for
+effective desired site placement, and `located_at` for physical inventory location.
+Storage uses independent optional `medium` and
 `protocol` fields. Provider observations belong in `status.extensions`.
 
 Server CPU inventory lives under `spec.capabilities.compute.cpu`: integer

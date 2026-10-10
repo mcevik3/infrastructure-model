@@ -37,6 +37,8 @@ class Topology:
                     self._edge(entry.id, site, "scoped_to")
             if "profileRef" in fields:
                 self._edge(entry.id, fields["profileRef"], "uses_profile")
+            if entry.kind == "ClusterNode" and "hostRef" in fields:
+                self._edge(entry.id, fields["hostRef"], "targets_host")
             if entry.kind == "ClusterNode" and "resourceRef" in fields:
                 self._edge(entry.id, fields["resourceRef"], "placed_on")
             elif entry.kind == "NetworkAttachment":

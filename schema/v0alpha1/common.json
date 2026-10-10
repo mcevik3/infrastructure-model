@@ -676,6 +676,10 @@
           "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/resourceRef",
           "description": "Exact selection of an existing Server; supported only for baremetal realization."
         },
+        "hostRef": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/resourceRef",
+          "description": "Desired exact physical Server/hypervisor for a VM. Mutually exclusive with resourceRef; does not derive effective site or prove capacity availability."
+        },
         "extensions": {
           "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/extensions"
         }

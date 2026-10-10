@@ -421,7 +421,8 @@ spec:
 Every ClusterNode requires `name` and `realization.type` (`vm` or `baremetal`).
 Optional fields are `placement`, `requirements`, `roles`, `image`,
 `networkAttachments`, and `configuration`. `placement.siteRef` overrides the Cluster's `spec.siteRef`
-default. Roles are unique strings with no execution semantics. The earlier
+default. Optional `placement.hostRef` requests an exact Server host for a VM;
+it does not supply or override the effective site. Roles are unique strings with no execution semantics. The earlier
 node-level `nodeType`, `siteRef`, and `resourceRef` fields are not accepted.
 
 Each network attachment requires a name and a `networkRef` resolving to a Network.
@@ -673,12 +674,50 @@ requirements:
     cpu: {count: 4, unit: core}
 ```
 
-VM nodes use site placement and requirements in the generic model. A VM
-`placement.resourceRef` is rejected; it does not select a hypervisor host.
-Provider host affinity may be carried in a namespaced extension, for example
-`placement.extensions["provider.example/host-affinity"]`, until a future generic
-placement concept is designed. Such opaque extensions are not resolved or
-evaluated by this validator.
+Placement distinguishes three kinds of desired identity:
+
+| Field | Meaning |
+| --- | --- |
+| `placement.siteRef` | Desired site; overrides the Cluster default site. |
+| `placement.hostRef` | Exact physical Server/hypervisor requested to host a VM. |
+| `placement.resourceRef` | Exact infrastructure resource realized directly, currently a bare-metal Server. |
+
+VM nodes may request an exact host using a canonical Server reference:
+
+```yaml
+name: vm-1
+realization:
+  type: vm
+placement:
+  siteRef: site/lab
+  hostRef: server/lab-host-1
+```
+
+`hostRef` is optional, has no default, and must resolve specifically to a Server.
+Malformed or wrong-kind references fail schema validation; dangling references
+fail normal reference resolution, which also checks kind at the semantic boundary.
+Semantic validation permits `hostRef` only for VM realization. Bare-metal nodes
+cannot use it, and a node cannot contain both `hostRef` and `resourceRef`. A VM
+`resourceRef` remains rejected; the two references are not aliases.
+
+When a node has an effective site, the requested host's `Server.spec.siteRef`
+must match it. Effective site still uses node `placement.siteRef`, otherwise
+Cluster `spec.siteRef`, otherwise unresolved. A node override takes precedence
+over its Cluster default, including when checking host consistency.
+
+**No site derivation:** `hostRef` does not currently derive effective site when
+node and Cluster site references are absent. The potential future derivation
+`hostRef → Server → Site` remains deferred. The analogous bare-metal derivation
+`resourceRef → Server → Site` is also deferred. Network scope validation continues
+to use only the existing effective-site rule: a VM with only `hostRef` does not
+acquire its host's site for `Network.siteRefs` checks or `targets_site` edges.
+
+Host placement is identity only. It does not evaluate the host's VM capacity,
+capabilities, schedulability, or availability and does not change resource-requirement
+compatibility semantics. A VM with a requested host retains an UNKNOWN compatibility
+warning. No automatic host selection, capacity accounting, hypervisor discovery,
+VM migration, runtime host observation, or provider-specific placement is implemented.
+Opaque placement extensions remain unevaluated by the core validator.
 
 Validation checks exact bare-metal selection as follows:
 
@@ -704,7 +743,9 @@ The internal compatibility contract has three results:
 
 Missing capabilities, vCPU demand against physical inventory, and opaque
 requirement extensions yield UNKNOWN. Without an exact resource, site-only or
-unplaced intent has one UNKNOWN placement warning per node; validation does not
+unplaced intent has one UNKNOWN placement warning per node. A requested VM host
+also retains one UNKNOWN warning because host identity does not prove compatibility;
+validation does not
 search for or require matching inventory. Authored storage sources still require
 existing inventory and receive additional UNKNOWN availability warnings without
 exact placement, as described in the storage configuration contract below.
@@ -768,6 +809,7 @@ ID. Edges preserve these meanings and directions:
 | `located_at` | Inventory resource → Site: physical/inventory location |
 | `scoped_to` | Network → each Site in `siteRefs`: allowed/declared site scope, not physical location or current realization |
 | `targets_site` | Cluster → default placement Site; ClusterNode → effective desired placement Site (node override, otherwise Cluster default) |
+| `targets_host` | VM ClusterNode → exact requested Server host: desired placement, not observed/runtime hosting |
 | `uses_profile` | Server/NetworkDevice → HardwareProfile |
 | `placed_on` | Bare-metal ClusterNode → exact selected Server |
 | `attached_to` | NetworkAttachment → Network |
@@ -1034,6 +1076,11 @@ and NixOS filesystem declarations remain outside the infrastructure core.
 All additional deferred features are listed in [decisions.md](decisions.md#intentionally-deferred).
 
 ## Source-model migration
+
+Optional `ClusterNode.placement.hostRef` adds provider-neutral exact VM host
+identity without renaming any existing field or inserting defaults. Existing
+site-only VM and bare-metal `resourceRef` documents keep their meanings. Host
+references neither alias `resourceRef` nor derive an effective site.
 
 Network scope intentionally changes within v0alpha1 from singular
 `Network.spec.siteRef: site/example` to `Network.spec.siteRefs: [site/example]`.

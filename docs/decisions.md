@@ -30,7 +30,8 @@ is provisional; this pass establishes no permanent organizational namespace.
 | Embedded fields | `accelerators`, `networkAdapters`, `interfaces`, `storage.{controllers,devices,volumes}`, `nodes`, `networkAttachments`, node `requirements.devices`, and node partition/LVM collections; named embedded entities have `name` directly | Confirm field shapes; embedded objects do not add another `metadata/spec` envelope. |
 | Component uniqueness | Names unique within each collection under a parent; accelerator/adapter/storage names may coincide | Canonical IDs retain kind-specific segments, including the existing `storage-device` segment. |
 | Profile inheritance | Profile capabilities supply defaults; actual resource values are authoritative. Mappings merge recursively, lists replace, omitted values inherit | Components/status are not inherited. No delete/unset operation or partial quantity overlay is provided. |
-| Exact resource placement | `placement.resourceRef` selects an existing `server/<name>` only for `realization.type: baremetal` | VM exact references are rejected. VM host affinity may use namespaced extensions pending a future generic concept. |
+| Exact resource placement | `placement.resourceRef` selects an existing `server/<name>` only for `realization.type: baremetal` | VM `resourceRef` remains rejected and never aliases `hostRef`. |
+| Exact VM host placement | Optional `placement.hostRef` requests an existing physical Server/hypervisor only for `realization.type: vm`; it must match an already effective node site | Desired identity only, with `targets_host` edges; no capacity evaluation, scheduling, availability proof, or site derivation. Host and resource references are mutually exclusive. |
 | Realization | `realization.type` is `vm` or `baremetal`; inventory `capabilities.nodeTypes` uses the same spellings | Explicit inventory advertisement is retained; Server type alone does not imply allocatability. Node-level legacy placement/type fields are rejected. |
 | CPU semantics | Integer inventory `compute.cpu.sockets/cores/threads` describe physical packages/cores and supported hardware threads. SMT enabled state is separate. Requirements use `compute.cpu: {count, unit}` with `vcpu`, `core`, or `thread` | Only exact bare-metal core/thread comparison is supported. Physical inventory never proves vCPU capacity; allocation/overcommit evidence is outside this version. |
 | Storage vocabulary | Independent optional `medium` and `protocol`; NVMe SSD is `ssd` plus `nvme` | `media` and `mixed` are removed. Unknown composition is omitted. Hardware controllers/devices/volumes now form explicit topology, with node partition/LVM intent separate. |
@@ -337,6 +338,8 @@ the two allowed sites, with only the existing abstract-placement UNKNOWN warning
 - FABRIC, Redfish, Dell/iDRAC, AMD firmware, NetBox, Chameleon, and FIM adapters.
 - Neo4j backend, FIM NetworkService, and resource delegation concepts.
 - Provider discovery, provisioning, lifecycle reconciliation, and persistence.
+- Effective-site derivation from VM `hostRef → Server → Site` or bare-metal
+  `resourceRef → Server → Site`; neither reference currently supplies a missing site.
 - CPU pinning, Linux logical CPU IDs, affinity masks/cpusets, VM NUMA, huge pages,
   NUMA-aware scheduling, and scheduler topology.
 - RAID capacity/parity calculations, stripe size, cache policy, rebuild policy,
@@ -360,3 +363,26 @@ the two allowed sites, with only the existing abstract-placement UNKNOWN warning
   domain classes while field shapes remain alpha.
 
 No Git commit is created as part of this implementation.
+
+## Provider-neutral exact VM host placement
+
+`ClusterNode.placement.hostRef` uses the existing canonical Server-reference
+syntax and core reference resolver. It identifies the exact physical
+Server/hypervisor desired for a VM. `placement.siteRef` remains desired site
+placement; `placement.resourceRef` identifies an infrastructure resource realized
+directly, currently bare metal. Host and resource references cannot coexist.
+Non-VM host requests fail semantic validation; unknown references and kind
+mismatches use the normal core diagnostics.
+
+Host consistency checks compare `Server.spec.siteRef` to the existing effective
+site: node override, then Cluster default, otherwise unresolved. Neither host nor
+bare-metal resource references derive an effective site. Both possible derivations
+remain future design questions. Network scope behavior therefore remains unchanged,
+including for host-only VMs whose site is unresolved.
+
+The graph adds `ClusterNode --targets_host--> Server` for desired exact VM host
+placement. Existing `targets_site`, bare-metal `placed_on`, Network `scoped_to`,
+and inventory `located_at` relationships retain their meanings. Host identity
+does not imply runtime placement or prove compatibility/available VM capacity;
+the existing UNKNOWN compatibility behavior remains. This change adds no provider
+adapter behavior, hypervisor scheduling, or observed host state.

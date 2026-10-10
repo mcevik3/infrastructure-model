@@ -175,6 +175,11 @@ class SemanticValidator:
                 placement = data.get("placement", {})
                 if "siteRef" in placement:
                     self._resolve(entry, placement["siteRef"], "Site", "/placement/siteRef")
+                if "hostRef" in placement and "resourceRef" in placement:
+                    self._issue(entry, "invalid_placement", "placement.hostRef and placement.resourceRef are mutually exclusive", "/placement")
+                    continue
+                if "hostRef" in placement:
+                    self._host_placement(entry)
                 if "resourceRef" in placement:
                     if data["realization"]["type"] != "baremetal":
                         self._issue(entry, "invalid_placement", "placement.resourceRef selects an existing Server only for baremetal realization", "/placement/resourceRef")
@@ -184,6 +189,7 @@ class SemanticValidator:
                         self._placement(entry, resource)
                 else:
                     self._result(entry, _Compatibility.UNKNOWN,
+                                 "requested VM host does not prove VM resource compatibility or availability" if "hostRef" in placement else
                                  "no exact inventory resource selected; site-only or unplaced intent does not prove compatibility",
                                  "/realization")
             elif entry.kind in {"Server", "HardwareProfile", "NetworkDevice"}:
@@ -409,6 +415,17 @@ class SemanticValidator:
             address = ipaddress.ip_address(value)
             if not any(address.version == prefix.version and address in prefix for prefix in prefixes):
                 self._issue(entry, "address_outside_prefix", f"{value} is not within any prefix of {network.id}", f"/addresses/{index}")
+
+    def _host_placement(self, node: Entry) -> None:
+        """Validate desired VM host identity/site without evaluating host capacity."""
+        if node.data["realization"]["type"] != "vm":
+            self._issue(node, "invalid_placement", "placement.hostRef selects a Server host only for vm realization", "/placement/hostRef")
+            return
+        host = self._resolve(node, node.data["placement"]["hostRef"], "Server", "/placement/hostRef")
+        site = self.registry.node_site(node)
+        if host is not None and site and site != host.data["spec"]["siteRef"]:
+            self._result(node, _Compatibility.UNSATISFIED,
+                         f"host {host.id} is at {host.data['spec']['siteRef']}, requested {site}", "/placement/hostRef")
 
     def _placement(self, node: Entry, resource: Entry) -> None:
         site = self.registry.node_site(node)
