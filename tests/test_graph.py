@@ -36,6 +36,8 @@ def test_logical_attachments_separate_from_physical_links(documents):
     assert topology.neighbors(node, "network_attachment") == ["network/lab-management", "network/lab-storage"]
     assert topology.neighbors(node, "physical_link") == []
     assert topology.neighbors(node, "targets_site") == ["site/lab-site"]
+    assert topology.neighbors("network/lab-management", "scoped_to") == ["site/lab-site"]
+    assert topology.neighbors("network/lab-management", "located_at") == []
     attachment = node + "/network-attachment/management"
     assert topology.neighbors(attachment, "attached_to") == ["network/lab-management"]
 
@@ -56,10 +58,11 @@ def test_graph_has_no_implicit_or_dangling_nodes(documents):
     assert all(edge["source"] in topology and edge["target"] in topology for edge in topology.edges())
     assert topology.neighbors("server/amst-w2", "uses_profile") == ["hardware-profile/dell-r7525"]
     assert topology.neighbors("server/amst-w2", "located_at", "both") == ["site/AMST"]
+    assert topology.neighbors("network-device/amst-data-sw", "located_at") == ["site/AMST"]
     assert not hasattr(topology, "graph")
 
 
-def test_exact_resource_edge(documents, inventory):
+def test_exact_resource_edge(documents, inventory, amst_network_scope):
     node = inventory["Cluster/openstack-lab"]["spec"]["nodes"][0]
     node.update(realization={"type": "baremetal"}, placement={"resourceRef": "server/amst-w2", "siteRef": "site/AMST"})
     topology = InfrastructureModel.from_documents(documents).topology

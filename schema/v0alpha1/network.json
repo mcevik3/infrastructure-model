@@ -16,13 +16,26 @@
     "spec": {
       "type": "object",
       "properties": {
-        "siteRef": {
-          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/siteRef"
+        "siteRefs": {
+          "type": "array",
+          "description": "Optional allowed site scope. Omission is unconstrained; listed sites need not be occupied. Authored order is preserved but has no semantic significance.",
+          "items": {
+            "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/siteRef"
+          },
+          "minItems": 1,
+          "uniqueItems": true
         },
         "layer": {
           "enum": [
             "layer2",
             "layer3"
+          ]
+        },
+        "connectivity": {
+          "description": "Omission means multipoint (a shared connectivity domain). Point-to-point permits at most two logical endpoints, counted as NetworkAttachments regardless of address count.",
+          "enum": [
+            "multipoint",
+            "point-to-point"
           ]
         },
         "prefixes": {

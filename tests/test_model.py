@@ -6,12 +6,12 @@ from infra_model import InfrastructureModel, ValidationError
 from conftest import ROOT
 
 
-@pytest.mark.parametrize("directory,count", [("examples", 20), ("examples/baremetal", 4), ("examples/amst", 5), ("examples/chameleon-like", 3), ("examples/fabric-like", 4), ("examples/device-requirements", 4)])
+@pytest.mark.parametrize("directory,count", [("examples", 24), ("examples/baremetal", 4), ("examples/amst", 5), ("examples/chameleon-like", 3), ("examples/fabric-like", 4), ("examples/device-requirements", 4), ("examples/multi-site", 4)])
 def test_examples_validate(directory, count):
     model = InfrastructureModel.load(ROOT / directory)
     report = model.validate()
     assert report.document_count == count
-    expected_warnings = {"examples": 2, "examples/fabric-like": 2}.get(directory, 0)
+    expected_warnings = {"examples": 4, "examples/fabric-like": 2, "examples/multi-site": 2}.get(directory, 0)
     assert len(report.warnings) == expected_warnings
     assert all("UNKNOWN" in warning.message for warning in report.warnings)
 
@@ -20,14 +20,14 @@ def test_public_api_and_embedded_identities():
     model = InfrastructureModel.load(ROOT / "examples")
     assert model.get("server/amst-w2")["kind"] == "Server"
     assert len(model.servers()) == 4
-    assert len(model.networks()) == 3
+    assert len(model.networks()) == 4
     interface = model.get("server/amst-w2/network-adapter/slot2/interface/p1")
     assert interface["kind"] == "Interface"
     node = model.get("cluster/openstack-lab/node/controller-1")
     assert node["kind"] == "ClusterNode"
-    assert len(model.documents) == 20
+    assert len(model.documents) == 24
     assert all(doc["kind"] != "ClusterNode" for doc in model.documents)
-    assert len(model.topology) == model.validate().entity_count == 70
+    assert len(model.topology) == model.validate().entity_count == 78
     with pytest.raises(KeyError):
         model.get("server/missing")
 
@@ -43,6 +43,7 @@ def test_fabric_like_example_keeps_vm_intent_and_generic_network_semantics():
     assert all(n["requirements"]["compute"]["cpu"]["unit"] == "vcpu" for n in nodes)
     assert all("capacity" in n["requirements"][group] for n in nodes for group in ["memory", "storage"])
     assert all(network["spec"]["layer"] == "layer2" for network in model.networks())
+    assert all(network["spec"]["siteRefs"] == ["site/lab-site"] for network in model.networks())
     assert all(a["interfaceRequirements"] == {"type": "ethernet"} and a["addresses"]
                for n in nodes for a in n["networkAttachments"])
 

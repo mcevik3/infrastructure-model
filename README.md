@@ -22,11 +22,11 @@ python -m pytest
 Expected example result:
 
 ```text
-Valid: 20 documents, 70 entities, 2 warnings
+Valid: 24 documents, 78 entities, 4 warnings
 ```
 
-The two FABRIC-like VM nodes produce UNKNOWN warnings because site placement
-and requirements alone do not prove resource compatibility. The focused device
+The two FABRIC-like and two multi-site VM nodes produce UNKNOWN warnings because
+site placement and requirements alone do not prove resource compatibility. The focused device
 example proves its GPU, FPGA, NVMe, and interface requirements with zero warnings.
 
 The CLI accepts one file or recursively loads `.yaml` and `.yml` files from a
@@ -83,6 +83,7 @@ Examples are illustrative, not discovered inventories or provider adapter output
 | [amst](examples/amst/inventory.yaml) | AMST, Dell R7525 profile, amst-w2, switch, physical Link |
 | [baremetal](examples/baremetal/infrastructure.yaml) | Dual-socket EPYC, SMT/NUMA, controller/disks/RAID volumes, GPT and LVM with exact bare-metal placement |
 | [fabric-like](examples/fabric-like/cluster.yaml) | Layer2 management/storage Networks, shared management gateway/DNS, explicitly no storage gateway, Rocky Linux 9 VMs, namespaced OpenStack roles, Ethernet requirements, static IPv4 attachments |
+| [multi-site](examples/multi-site/infrastructure.yaml) | One Cluster with a default site, one inheriting VM, one VM overriding its site, and a shared layer2 multipoint Network |
 | [device-requirements](examples/device-requirements/infrastructure.yaml) | GPU/FPGA inventory and intent, two NVMe devices, 100 Gbps Ethernet/RDMA SmartNIC attachment, exact placement with zero warnings |
 
 Each example directory also validates independently. Inventory capacities and
@@ -145,6 +146,34 @@ Omitted inventory collections mean not reported/UNKNOWN; explicitly empty lists
 mean known to contain none and make requirements for that family UNSATISFIED.
 See [device and interface requirements](docs/model-v0alpha1.md#device-and-interface-requirements)
 for fields, evidence rules, and the historical FABRIC vocabulary mapping.
+
+`Network.spec.siteRefs` is an optional allowed site scope: a nonempty list of
+unique canonical Site references that must resolve. Omission means unconstrained
+by the Network; `siteRefs: []` is invalid. Authored order is preserved but has no
+semantic significance, and listed sites need not all be occupied. This intentionally
+replaces `Network.spec.siteRef` in v0alpha1, with no compatibility alias.
+`Cluster.spec.siteRef` remains the default placement site for ClusterNodes;
+`ClusterNode.placement.siteRef` is the per-node placement override. Attached nodes
+with a resolved effective site must fall within the Network's declared scope.
+Unresolved node sites add no redundant Network warning.
+
+Topology uses Network `scoped_to` edges for declared allowed scope, ClusterNode
+`targets_site` edges for effective desired placement, and `located_at` for
+physical/inventory location. Network scope edges do not assert current realization;
+no additional Network → Site edges are derived from endpoint placement.
+
+Optional Network `connectivity` is `multipoint` (a shared connectivity domain)
+or `point-to-point` (at most two NetworkAttachment endpoints, including zero or
+one). Omission means multipoint semantically, without a schema default or inserted
+value; multipoint does not mean three or more. These semantics apply to both
+layers, and address counts do not change endpoint counts. Effective network sites
+are the unique resolved effective sites of attached endpoints, not the declared
+`siteRefs` list. Future provider adapters must use those actual sites for network
+realization and may impose stronger realizability constraints, such as exactly
+two endpoints. FABRIC service selection will consider layer, connectivity, effective
+endpoint sites, and resolved endpoint/interface capabilities. The generic model
+describes required network capability; the adapter chooses the NIC/component
+model and must not assume one attachment equals one physical NIC.
 
 Networks can declare shared `defaultGateways` (one per declared prefix) and
 ordered `dns.servers`. Gateway families must match their prefixes; gateway

@@ -7,7 +7,7 @@ from infra_model import InfrastructureModel, ValidationError
 
 
 @pytest.fixture
-def placed(documents, inventory):
+def placed(documents, inventory, amst_network_scope):
     node = inventory["Cluster/openstack-lab"]["spec"]["nodes"][0]
     inventory["Cluster/openstack-lab"]["spec"]["nodes"] = [node]
     node["realization"] = {"type": "baremetal"}

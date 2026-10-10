@@ -127,6 +127,7 @@ class Registry:
         return entry
 
     def node_site(self, node: Entry) -> str | None:
+        """Effective site reference: node override, then Cluster default, else None."""
         return node.data.get("placement", {}).get("siteRef") or self.entries[node.parent].data["spec"].get("siteRef")
 
     def effective_capabilities(self, resource: Entry) -> dict:

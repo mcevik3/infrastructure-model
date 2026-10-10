@@ -1,5 +1,6 @@
 """Provider-neutral semantic validation over normalized dictionaries."""
 
+from collections import Counter
 from enum import Enum
 from fractions import Fraction
 import ipaddress
@@ -114,6 +115,9 @@ class SemanticValidator:
         self.registry = registry
         self.issues: list[Issue] = []
         self.warnings: list[Issue] = []
+        self._network_endpoints = Counter(
+            entry.data["networkRef"] for entry in registry.of_kind("NetworkAttachment")
+        )
 
     def _issue(self, entry: Entry, code: str, message: str, path: str = "", *, warning: bool = False) -> None:
         target = self.warnings if warning else self.issues
@@ -351,6 +355,14 @@ class SemanticValidator:
 
     def _network(self, entry: Entry) -> None:
         spec = entry.data["spec"]
+        for index, reference in enumerate(spec.get("siteRefs", [])):
+            self._resolve(entry, reference, "Site", f"/spec/siteRefs/{index}")
+        if spec.get("connectivity", "multipoint") == "point-to-point":
+            count = self._network_endpoints[entry.id]
+            if count > 2:
+                self._issue(entry, "network_endpoint_cardinality",
+                            f"point-to-point Network permits at most two NetworkAttachments; found {count}",
+                            "/spec/connectivity")
         prefixes = {ipaddress.ip_network(prefix) for prefix in spec.get("prefixes", [])}
         gateway_prefixes = set()
         for index, gateway in enumerate(spec.get("defaultGateways", [])):
@@ -381,7 +393,18 @@ class SemanticValidator:
         network = self._resolve(entry, entry.data["networkRef"], "Network", "/networkRef")
         if network is None:
             return
-        prefixes = [ipaddress.ip_network(prefix) for prefix in network.data["spec"].get("prefixes", [])]
+        spec = network.data["spec"]
+        node = self.registry.entries[entry.parent]
+        site = self.registry.node_site(node)
+        resolved_site = self.registry.entries.get(site)
+        # Missing placement keeps the existing placement diagnostic; dangling
+        # references are diagnosed at their source, not again as scope failures.
+        if resolved_site is not None and resolved_site.kind == "Site" and "siteRefs" in spec:
+            if site not in spec["siteRefs"]:
+                self._issue(entry, "network_site_scope",
+                            f"{node.id} has effective site {site}, outside {network.id} siteRefs",
+                            "/networkRef")
+        prefixes = [ipaddress.ip_network(prefix) for prefix in spec.get("prefixes", [])]
         for index, value in enumerate(entry.data.get("addresses", [])):
             address = ipaddress.ip_address(value)
             if not any(address.version == prefix.version and address in prefix for prefix in prefixes):

@@ -1,0 +1,44 @@
+apiVersion: infra.model/v0alpha1
+kind: Site
+metadata:
+  name: site-a
+spec: {}
+---
+apiVersion: infra.model/v0alpha1
+kind: Site
+metadata:
+  name: site-b
+spec: {}
+---
+apiVersion: infra.model/v0alpha1
+kind: Network
+metadata:
+  name: multi-site-data
+spec:
+  layer: layer2
+  connectivity: multipoint
+  siteRefs:
+    - site/site-a
+    - site/site-b
+---
+apiVersion: infra.model/v0alpha1
+kind: Cluster
+metadata:
+  name: multi-site
+spec:
+  siteRef: site/site-a
+  nodes:
+    - name: vm-a
+      realization: {type: vm}
+      networkAttachments:
+        - name: data
+          networkRef: network/multi-site-data
+          interfaceRequirements: {type: ethernet}
+    - name: vm-b
+      realization: {type: vm}
+      placement:
+        siteRef: site/site-b
+      networkAttachments:
+        - name: data
+          networkRef: network/multi-site-data
+          interfaceRequirements: {type: ethernet}

@@ -42,7 +42,9 @@ is provisional; this pass establishes no permanent organizational namespace.
 | Address shape | Attachment `addresses` are plain IPv4/IPv6 literals; Network `prefixes` use strict CIDR prefix-length notation, rejecting dotted netmasks/hostmasks | Confirm whether future addresses should include per-address metadata or allocation modes. |
 | Network prefix semantics | An attachment address must belong to a prefix of its referenced Network; an attachment address with no declared prefix fails | Overlapping prefixes, duplicate host IPs, reserved/broadcast addresses, and routing policies are not validated. |
 | Network gateway/DNS configuration | Optional shared `defaultGateways` and `dns.servers`; one gateway per declared prefix, matching IP family without requiring containment; DNS addresses are unique and ordered | Omission is unspecified; explicit empty lists mean none. Arbitrary static routes, metrics, and attachment overrides are deferred. |
-| Site inheritance | Node `placement.siteRef` overrides the Cluster default; exact resources must match the effective site when one is supplied | Network site does not restrict attachments; cross-site connectivity is not inferred. |
+| Site inheritance | `Cluster.spec.siteRef` is the default placement site for ClusterNodes; `ClusterNode.placement.siteRef` is the per-node override; otherwise the effective site is unresolved | Exact resources must match a supplied effective site. Nodes in one Cluster may use different sites. |
+| Network site scope | Optional `Network.spec.siteRefs` is a nonempty unique list of resolving canonical Site references; attached nodes with resolved effective sites must be within it | Omission is unconstrained. Unused allowed sites are valid; authored order is preserved but has no semantic significance. Unresolved node sites add no redundant Network warning. |
+| Network connectivity | Omitted or explicit `multipoint` means a shared connectivity domain; `point-to-point` permits at most two NetworkAttachments across all nodes and Clusters, independent of layer | No schema default, minimum of three for multipoint, or exactly-two requirement in core. Provider adapters may enforce stronger realizability constraints. |
 | OS image and roles | Cluster image supplies descriptive default intent; nodes may override image; roles are free strings | Image resolution, OS suitability, role definitions, and configuration generation are deferred. |
 | Extensions/status | Generic status fields are `availability`, `operationalState`, `powerState`, `observedAt`, and namespaced `extensions`; shared where entity schemas support status. Accelerator inventory adds no status or provider-specific fields | Provider transient/discovered state belongs under `status.extensions` where supported. Payloads stay opaque; no provider-specific status schemas. |
 | Example fidelity | Hardware values and IDs are illustrative | Confirm authoritative inventory data separately; these examples are not live provider claims. |
@@ -278,6 +280,55 @@ physical NIC/component exposing multiple interfaces. It must not assume
 Arbitrary static routes, route metrics/priorities, multiple gateways per prefix,
 ECMP, failover, policy routing, DHCP, DNS search domains, DNS priority, per-interface
 or split DNS, DNS-over-TLS/HTTPS, and attachment gateway/DNS overrides are deferred.
+
+## Multi-site Network scope and generic connectivity
+
+This is an intentional v0alpha1 source incompatibility: replace
+`Network.spec.siteRef: site/example` with `Network.spec.siteRefs: [site/example]`.
+The old Network field is rejected without a compatibility alias. Cluster and
+node placement fields remain singular. Omission of Network `siteRefs` leaves
+scope unconstrained; a supplied list must contain at least one unique resolving
+Site reference, so `siteRefs: []` is invalid. Scope lists declare allowed sites,
+not an obligation to occupy every listed site. The topology uses `scoped_to`
+edges from Network to each declared allowed Site. These edges do not assert
+physical location or current realization. ClusterNode `targets_site` edges
+represent effective desired node placement; `located_at` remains physical/inventory
+location. No additional Network → Site edges are derived from endpoint sites.
+
+Effective node site uses `ClusterNode.placement.siteRef` first, then the parent
+`Cluster.spec.siteRef`, otherwise it is unresolved. Network scope validation
+reuses that placement logic. Resolved sites outside the Network's scope fail;
+unresolved placement retains existing diagnostics without an extra Network warning.
+
+Optional `connectivity` distinguishes a shared multipoint domain from a
+point-to-point domain with at most two logical endpoints. Omission means
+multipoint semantically, with no schema default or inserted value. Multipoint
+does not require three or more attachments. Point-to-point permits zero, one,
+or two attachments; each NetworkAttachment counts once regardless of address
+count, including dual-stack addresses. Connectivity is independent of layer.
+No gateway/DNS, route, addressing, device, or interface requirement policy changes.
+
+Effective network sites are the unique resolved effective sites of the endpoints
+actually attached to the Network. No new persisted field or public helper is
+needed: existing attachment and node `targets_site` topology queries expose the
+necessary information. Provider adapters must use actual effective endpoint
+sites for realization selection, not simply the length of `Network.siteRefs`.
+
+Future FABRIC network service resolution will consider `Network.layer`,
+`Network.connectivity`, effective endpoint sites, and resolved endpoint/interface
+capabilities before choosing an appropriate service. Layer alone does not select
+a service. Provider adapters may require exactly two endpoints or other stronger
+realizability constraints for a particular service. No FABRIC adapter, service
+selection, or provider service names are added to the generic schema.
+
+The NIC bookmark above still applies: the generic model describes required
+network capability; the provider adapter chooses the provider NIC/component
+model. One attachment must not be assumed to equal one physical NIC.
+
+The FABRIC-like example stays single-site. The separate
+[multi-site example](../examples/multi-site/infrastructure.yaml) has one Cluster,
+an inheriting VM, an overriding VM, and one layer2 multipoint Network spanning
+the two allowed sites, with only the existing abstract-placement UNKNOWN warnings.
 
 ## Intentionally deferred
 

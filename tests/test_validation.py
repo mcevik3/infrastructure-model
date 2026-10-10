@@ -18,13 +18,13 @@ def assert_error(documents, code, text=None):
 @pytest.mark.parametrize("target,field,reference", [
     ("Server/amst-w2", "siteRef", "site/missing"),
     ("NetworkDevice/amst-data-sw", "siteRef", "site/missing"),
-    ("Network/lab-management", "siteRef", "site/missing"),
+    ("Network/lab-management", "siteRefs", "site/missing"),
     ("Cluster/openstack-lab", "siteRef", "site/missing"),
     ("Server/amst-w2", "profileRef", "hardware-profile/missing"),
     ("NetworkDevice/amst-data-sw", "profileRef", "hardware-profile/missing"),
 ])
 def test_bad_top_level_references(documents, inventory, target, field, reference):
-    inventory[target]["spec"][field] = reference
+    inventory[target]["spec"][field] = [reference] if field == "siteRefs" else reference
     assert_error(documents, "unresolved_reference", reference)
 
 

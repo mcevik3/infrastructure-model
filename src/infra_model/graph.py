@@ -32,6 +32,9 @@ class Topology:
                 self._edge(entry.id, fields["siteRef"], relation)
             elif entry.kind == "ClusterNode" and registry.node_site(entry):
                 self._edge(entry.id, registry.node_site(entry), "targets_site")
+            if entry.kind == "Network":
+                for site in fields.get("siteRefs", []):
+                    self._edge(entry.id, site, "scoped_to")
             if "profileRef" in fields:
                 self._edge(entry.id, fields["profileRef"], "uses_profile")
             if entry.kind == "ClusterNode" and "resourceRef" in fields:

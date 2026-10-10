@@ -275,9 +275,50 @@ distinct. The model does not enforce one cable per port or infer logical Network
 
 ## Logical networking and deployment intent
 
-**Network** has optional `spec.siteRef`, `layer` (`layer2` or `layer3`), `prefixes`,
-`defaultGateways`, and `dns`.
-Omitting siteRef allows a domain without a single-site scope. Each prefix must be
+**Network** has optional `spec.siteRefs`, `layer` (`layer2` or `layer3`),
+`connectivity`, `prefixes`, `defaultGateways`, and `dns`.
+
+`siteRefs` is an allowed/declared site scope. When supplied it must contain at
+least one unique canonical Site reference, and every reference must resolve to
+a Site. Omission means no explicit Network site-scope constraint; `siteRefs: []`
+is invalid. Authored order is preserved but has no semantic significance. There
+is no requirement that every listed site have an attached endpoint.
+
+`Cluster.spec.siteRef` is the default placement site for ClusterNodes.
+`ClusterNode.placement.siteRef` is the per-node placement override. A node's
+effective site is its placement override when present, otherwise its parent
+Cluster's default when present, otherwise unresolved. Nodes in one Cluster may
+therefore resolve to different sites. For each NetworkAttachment with a resolved
+owning-node site, that site must be included in the referenced Network's `siteRefs`
+if the scope is supplied. An omitted scope imposes no Network-level restriction.
+An unresolved node site alone does not make the Network incompatible or produce
+a redundant Network warning; existing placement diagnostics still apply.
+
+| Network connectivity | Meaning |
+| --- | --- |
+| Omitted | Semantically multipoint; no JSON Schema default or value is inserted. |
+| `multipoint` | Shared connectivity domain, with no minimum of three endpoints. |
+| `point-to-point` | Connectivity domain with at most two logical endpoints. |
+
+Endpoints are NetworkAttachment objects referencing the Network across all nodes
+and Clusters. Point-to-point permits zero, one, or two attachments; more than two
+is an error. Multiple attachments on one node remain distinct endpoints. One
+attachment remains one endpoint regardless of its IPv4/IPv6 address count.
+Multipoint retains existing attachment behavior. Connectivity is independent of
+`layer`; the same rules apply to layer2, layer3, and an unspecified layer.
+Provider adapters may impose stronger realizability constraints, including exactly
+two endpoints for a particular realization.
+
+**Effective network sites** are the unique resolved effective sites of endpoints
+attached to the Network. This is derived information, not a persisted source field.
+Provider adapters must select network realization using those actual endpoint
+sites, not simply the number of entries in `Network.spec.siteRefs`. Unused allowed
+sites do not make an otherwise single-site network span multiple sites.
+The [multi-site example](../examples/multi-site/infrastructure.yaml) demonstrates
+one Cluster default and a VM override attaching to a shared layer2 multipoint
+Network. Its two abstract VM placements retain the intentional UNKNOWN warnings.
+
+Each prefix must be
 a strict IPv4/IPv6 CIDR network in prefix-length notation, with no host bits
 set: `192.0.2.0/24` and `2001:db8::/64` are valid; `192.0.2.1/24` is not.
 Dotted netmasks (`192.0.2.0/255.255.255.0`) and hostmasks
@@ -345,8 +386,9 @@ Arbitrary static routes, route metrics/priorities, multiple gateways per prefix,
 ECMP, failover, policy routing, DHCP, DNS search domains, split DNS, encrypted DNS,
 and attachment-level gateway/DNS overrides are deferred.
 
-**Cluster** requires a nonempty `spec.nodes` collection. Optional `siteRef` supplies
-a default placement location. Optional `image` contains a required descriptive
+**Cluster** requires a nonempty `spec.nodes` collection. Optional `spec.siteRef`
+supplies the default placement site for ClusterNodes; it remains singular.
+Optional `image` contains a required descriptive
 `name` and optional string `version`. Nodes may supply their own image; no image
 resolution is performed or materialized in source dictionaries.
 
@@ -572,7 +614,7 @@ OpenStack control, network, storage, and compute responsibilities.
 | `pci.nvme` | `requirements.devices[type=storage, constraints.protocol=nvme]` |
 | `pci.network` / `NIC_Basic` | `networkAttachments[].interfaceRequirements`, ordinarily `{type: ethernet}` |
 | `binding` | `networkAttachments[].networkRef` |
-| `L2Bridge` | Network `layer: layer2`; future FABRIC adapter selects the provider service |
+| Provider network service | Network `layer`, `connectivity`, effective endpoint sites, and resolved endpoint/interface capabilities inform future adapter selection |
 | OpenStack role booleans | Semantic roles such as `openstack.control`, `openstack.network`, `openstack.storage`, `openstack.compute` |
 | NetworkManager device/connection names | Future OS configuration adapter |
 | Ansible-specific fields | Future Ansible adapter |
@@ -580,10 +622,12 @@ OpenStack control, network, storage, and compute responsibilities.
 | SELinux settings | OS configuration policy |
 
 These provider/tool-specific fields were deliberately removed from core intent,
-not accidentally lost. A future FABRIC adapter may map a generic layer2 Network
-to `L2Bridge` and an Ethernet VM attachment to `NIC_Basic` or another suitable
-component. No such vocabulary, translation, or adapter is implemented in core
-schema or validation.
+not accidentally lost. Future FABRIC network service resolution will consider
+`Network.layer`, `Network.connectivity`, effective endpoint sites, and resolved
+endpoint/interface capabilities, then choose an appropriate provider service.
+Layer alone does not determine the service, and the declared allowed site count
+does not establish actual endpoint placement. No provider service names, service
+selection, translation, or adapter code are implemented in core schema or validation.
 
 The adapter design rule is:
 
@@ -721,8 +765,9 @@ ID. Edges preserve these meanings and directions:
 | Relation | Direction |
 | --- | --- |
 | `contains` | Parent → embedded entity |
-| `located_at` | Inventory resource or Network → Site |
-| `targets_site` | Cluster/ClusterNode → requested Site (including node default) |
+| `located_at` | Inventory resource → Site: physical/inventory location |
+| `scoped_to` | Network → each Site in `siteRefs`: allowed/declared site scope, not physical location or current realization |
+| `targets_site` | Cluster → default placement Site; ClusterNode → effective desired placement Site (node override, otherwise Cluster default) |
 | `uses_profile` | Server/NetworkDevice → HardwareProfile |
 | `placed_on` | Bare-metal ClusterNode → exact selected Server |
 | `attached_to` | NetworkAttachment → Network |
@@ -742,6 +787,10 @@ ID. Edges preserve these meanings and directions:
 | `uses_pv` | VolumeGroup → PhysicalVolume |
 | `allocated_from` | LogicalVolume → VolumeGroup |
 | `requires_device` | ClusterNode → DeviceRequirement |
+
+Network → Site edges come only from declared `siteRefs`; no additional edges
+are derived from attached endpoint sites. Effective endpoint sites remain
+available through attachment relationships and ClusterNode `targets_site` edges.
 
 `topology.nodes(kind=None)` returns normalized dictionaries;
 `topology.edges(relation=None)` returns dictionaries with `source`, `target`,
@@ -986,6 +1035,18 @@ All additional deferred features are listed in [decisions.md](decisions.md#inten
 
 ## Source-model migration
 
+Network scope intentionally changes within v0alpha1 from singular
+`Network.spec.siteRef: site/example` to `Network.spec.siteRefs: [site/example]`.
+The old field is rejected, including when supplied alongside `siteRefs`; there
+is no compatibility alias. Omit `siteRefs` for unconstrained Network scope;
+an empty list is invalid. `Cluster.spec.siteRef` and
+`ClusterNode.placement.siteRef` retain their existing default/override meanings.
+The new scope is enforced against resolved effective node sites for all attached
+endpoints, so existing cross-site intent may need additional allowed sites or
+an omitted scope. Optional `connectivity` introduces no source default: omission
+means multipoint. Point-to-point opts into the at-most-two-attachments constraint.
+Existing gateway/DNS, address, device, and interface requirement rules are unchanged.
+
 The device/interface extension and accelerator inventory add optional fields to
 existing source shapes. The accompanying hardware identity cleanup intentionally
 renames `manufacturer` to `vendor` on HardwareProfile and NetworkAdapter, matching
@@ -1000,6 +1061,7 @@ This remains v0alpha1 with clean schema corrections and no deprecated aliases:
 
 | Previous source field | Current source field |
 | --- | --- |
+| `Network.spec.siteRef: site/example` | `Network.spec.siteRefs: [site/example]` |
 | `spec.capabilities.compute.sockets: {value: 2, unit: socket}` | `spec.capabilities.compute.cpu.sockets: 2` |
 | `spec.capabilities.compute.cores: {value: 128, unit: core}` | `spec.capabilities.compute.cpu.cores: 128` |
 | `spec.capabilities.compute.threads: {value: 256, unit: thread}` | `spec.capabilities.compute.cpu.threads: 256` |

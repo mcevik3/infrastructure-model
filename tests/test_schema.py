@@ -191,7 +191,7 @@ def test_old_node_placement_fields_are_rejected(documents, inventory, field, val
         InfrastructureModel.from_documents(documents).validate()
 
 
-def test_vm_site_placement_and_namespaced_affinity_are_valid(documents, inventory):
+def test_vm_site_placement_and_namespaced_affinity_are_valid(documents, inventory, amst_network_scope):
     node = inventory["Cluster/openstack-lab"]["spec"]["nodes"][0]
     node["placement"] = {"siteRef": "site/AMST", "extensions": {"example.org/host-affinity": {"host": "opaque"}}}
     model = InfrastructureModel.from_documents(documents)

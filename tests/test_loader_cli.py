@@ -101,8 +101,8 @@ def test_in_memory_cycle_rejected():
 def test_cli_success(capsys):
     assert main(["validate", str(ROOT / "examples")]) == 0
     captured = capsys.readouterr()
-    assert captured.out == "Valid: 20 documents, 70 entities, 2 warnings\n"
-    assert captured.err.count("UNKNOWN") == 2
+    assert captured.out == "Valid: 24 documents, 78 entities, 4 warnings\n"
+    assert captured.err.count("UNKNOWN") == 4
 
 
 def test_cli_invalid_model(tmp_path, capsys):
@@ -120,7 +120,7 @@ def test_cli_load_error(tmp_path, capsys):
     assert "path does not exist" in capsys.readouterr().err
 
 
-def test_cli_warnings(documents, inventory, tmp_path, capsys):
+def test_cli_warnings(documents, inventory, tmp_path, capsys, amst_network_scope):
     node = inventory["Cluster/openstack-lab"]["spec"]["nodes"][0]
     inventory["Cluster/openstack-lab"]["spec"]["nodes"] = [node]
     node.update(realization={"type": "baremetal"}, placement={"resourceRef": "server/amst-w2", "siteRef": "site/AMST"})
@@ -146,4 +146,4 @@ def test_installed_entrypoints_from_outside_repo(tmp_path, entrypoint):
     env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
     result = subprocess.run([*command, "validate", str(ROOT / "examples")], cwd=tmp_path, env=env, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-    assert "20 documents" in result.stdout
+    assert "24 documents" in result.stdout
