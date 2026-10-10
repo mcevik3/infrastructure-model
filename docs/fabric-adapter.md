@@ -245,8 +245,7 @@ and filesystem/mount rendering remain outside this increment.
 
 ## Manual downstream acceptance
 
-FABRIC adapter v0.1 output was manually tested through the existing
-fabric-generic-cluster workflow:
+FABRIC adapter v0.1 was manually verified successfully through this workflow:
 
 ```text
 provider-neutral infrastructure model
@@ -256,12 +255,13 @@ provider-neutral infrastructure model
     -> existing fabric-generic-cluster downstream tooling/notebook/library
 ```
 
-The generated YAML was accepted by the existing downstream consumer without
-manual edits. For the documents exercised, this verifies that the offline
-renderer produces structurally compatible fabric-generic-cluster YAML and that
-the existing downstream parser/workflow accepts it. This manual integration
-acceptance is separate from automated test results.
+The rendered YAML was accepted by the existing downstream consumer without
+manual edits. For the documents exercised, this demonstrates structural
+compatibility with the existing fabric-generic-cluster input format and
+successful consumption by the downstream workflow. This manual acceptance is
+recorded separately from automated unit/integration test counts.
 
-It does not prove live FABRIC resource availability, project permissions, slice
-submission success, actual resource provisioning, runtime/network correctness,
-or support for features outside adapter v0.1.
+It does not establish live FABRIC resource availability, FABRIC project
+permissions, successful slice submission, successful physical resource
+provisioning, runtime network correctness, or support for features outside the
+current adapter scope.
