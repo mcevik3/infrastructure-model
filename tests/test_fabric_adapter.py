@@ -358,7 +358,7 @@ def test_descriptions_and_observations_are_not_rendering_requests(source, config
 
 
 @pytest.mark.parametrize("kind", ["gpu", "fpga", "storage", "dpu", "other"])
-def test_device_requirements_fail(source, config, kind):
+def test_unresolved_or_unsupported_device_requirements_fail(source, config, kind):
     requirement = {"name": "device", "type": kind}
     if kind == "storage":
         requirement["constraints"] = {"protocol": "nvme"}

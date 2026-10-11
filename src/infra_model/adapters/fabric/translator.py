@@ -11,7 +11,7 @@ from ...registry import Entry, Registry
 from .config import FabricAdapterConfig
 from .errors import FabricTranslationError
 from .plan import (
-    _FabricAddressPlan, _FabricGatewayPlan, _FabricInterfacePlan,
+    _FabricAddressPlan, _FabricDevicePlan, _FabricGatewayPlan, _FabricInterfacePlan,
     _FabricNetworkComponentPlan, _FabricNetworkPlan, _FabricNodePlan,
     _FabricPrefixPlan, _FabricRenderPlan,
 )
@@ -20,6 +20,14 @@ from .plan import (
 _BYTE_FACTORS = {"B": 1, "kB": 1000, "MB": 1000**2, "GB": 1000**3, "TB": 1000**4,
                  "KiB": 1024, "MiB": 1024**2, "GiB": 1024**3, "TiB": 1024**4}
 _ROLES = {"openstack.control", "openstack.network", "openstack.compute", "openstack.storage"}
+# Compatibility context: fabric-generic-cluster 1.0.20, FABlib 1.9.5, FIM 1.9.0.
+# These are exact mappings; product aliases must be listed explicitly.
+_DEVICE_MODELS = {
+    "gpu": {"Tesla T4": "GPU_TeslaT4", "RTX6000": "GPU_RTX6000", "A30": "GPU_A30", "A40": "GPU_A40"},
+    "fpga": {"U280": "FPGA_Xilinx_U280", "Alveo U280": "FPGA_Xilinx_U280", "SN1022": "FPGA_Xilinx_SN1022"},
+    "storage": {"P4510": "NVME_P4510"},
+}
+_DEVICE_VENDORS = {"gpu": {"NVIDIA"}, "fpga": {"AMD", "Xilinx"}, "storage": {"Intel"}}
 
 
 @dataclass(frozen=True)
@@ -53,8 +61,6 @@ def _gib(node: Entry, group: str) -> int:
 
 def _node_capacity(node: Entry) -> tuple[int, int, int]:
     requirements = node.data.get("requirements", {})
-    if requirements.get("devices"):
-        _fail(node, "/requirements/devices", "device requirements (GPU/FPGA/NVMe/DPU/other) are unsupported")
     compute = requirements.get("compute", {})
     if "architecture" in compute and compute["architecture"] != "x86_64":
         _fail(node, "/requirements/compute/architecture", "only x86_64 architecture is supported by the v0.1 FABRIC target")
@@ -69,6 +75,37 @@ def _node_capacity(node: Entry) -> tuple[int, int, int]:
     if cpu["unit"] != "vcpu":
         _fail(node, "/requirements/compute/cpu/unit", "FABRIC VM CPU capacity requires unit vcpu")
     return int(cpu["count"]), _gib(node, "memory"), _gib(node, "storage")
+
+
+def _device_model(entry: Entry) -> str:
+    required = entry.data
+    kind = required["type"]
+    if kind not in _DEVICE_MODELS:
+        _fail(entry, "/type", f"{kind} device requirements remain unsupported")
+    constraints = required.get("constraints", {})
+    if constraints.get("features"):
+        _fail(entry, "/constraints/features", "device feature requirements are unsupported; model identity does not prove requested capabilities")
+    if "minCapacity" in constraints:
+        _fail(entry, "/constraints/minCapacity", "device minCapacity requirements are unsupported; no static capacity resolver is implemented")
+    if kind == "storage" and constraints.get("protocol") != "nvme":
+        _fail(entry, "/constraints/protocol", "storage device requirements require explicit protocol nvme")
+    model = constraints.get("model")
+    if model not in _DEVICE_MODELS[kind]:
+        _fail(entry, "/constraints/model", f"{kind} device requirements need an exact supported model; received {model!r}")
+    if "vendor" in constraints and constraints["vendor"] not in _DEVICE_VENDORS[kind]:
+        _fail(entry, "/constraints/vendor", f"vendor {constraints['vendor']!r} is incompatible with supported {kind} model {model!r}")
+    return _DEVICE_MODELS[kind][model]
+
+
+def _devices(node: Entry, registry: Registry) -> dict[str, tuple[_FabricDevicePlan, ...]]:
+    families: dict[str, list[_FabricDevicePlan]] = {"gpu": [], "fpga": [], "nvme": []}
+    for required in node.data.get("requirements", {}).get("devices", []):
+        model = _device_model(registry.entries[required["id"]])
+        family = "nvme" if required["type"] == "storage" else required["type"]
+        devices = families[family]
+        for _ in range(required.get("count", 1)):
+            devices.append(_FabricDevicePlan(f"{family}{len(devices) + 1}", model))
+    return {family: tuple(devices) for family, devices in families.items()}
 
 
 def _network(entry: Entry, endpoints: list[_EndpointRealization], selected_cluster: str,
@@ -267,6 +304,7 @@ def _translate(model: InfrastructureModel, *, cluster: str | None, config: Fabri
                 for reference, endpoints in network_endpoints.items()}
     plans = []
     for node in nodes:
+        devices = _devices(node, registry)
         cpu, ram, disk = _node_capacity(node)
         image = node.data.get("image", spec.get("image"))
         image_path = "/image" if "image" in node.data else "/spec/image"
@@ -288,5 +326,6 @@ def _translate(model: InfrastructureModel, *, cluster: str | None, config: Fabri
             worker = config.workers[host_ref]
         components = _components(node_components[node.id], networks)
         plans.append(_FabricNodePlan(node.data["name"], sites[node.id], cpu, ram, disk, config.images[identity],
-                                     tuple(role.removeprefix("openstack.") for role in roles), components, worker=worker))
+                                     tuple(role.removeprefix("openstack.") for role in roles), components, worker=worker,
+                                     gpus=devices["gpu"], fpgas=devices["fpga"], nvmes=devices["nvme"]))
     return _FabricRenderPlan(tuple(plans), tuple(networks.values()))

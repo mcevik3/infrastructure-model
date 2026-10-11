@@ -547,3 +547,53 @@ No static IP handling, VLAN allocation, live discovery, availability checks, or
 submission is added. The [fixture](../tests/fixtures/fabric-l2ptp.yaml) uses existing
 Site/image mappings and provider-neutral source intent. Earlier manual downstream
 acceptance does not establish acceptance or runtime correctness for L2PTP.
+
+## Offline FABRIC GPU, FPGA, and NVMe realization
+
+The adapter consumes existing `requirements.devices` without changing core
+schema/validation, public adapter API, or Site/image/worker configuration.
+GPU models map exactly: `Tesla T4` → `GPU_TeslaT4`, `RTX6000` → `GPU_RTX6000`,
+`A30` → `GPU_A30`, and `A40` → `GPU_A40`. Vendor may be omitted or exactly
+`NVIDIA`; `GPU_Tesla_T4` is not a valid emitted identifier.
+
+FPGA `U280` and explicit product alias `Alveo U280` map to `FPGA_Xilinx_U280`;
+`SN1022` maps to `FPGA_Xilinx_SN1022`. Both accept vendor omitted or explicit
+`AMD`/`Xilinx` identities. These are explicit resolver entries, not fuzzy matching.
+FPGA components are allocated without the optional downstream interface bindings.
+
+NVMe requires `type: storage`, `constraints.protocol: nvme`, and exact model
+`P4510`, with vendor omitted or `Intel`, and maps to `NVME_P4510`. Generic storage
+alone is insufficient. This does not consume root-disk capacity, persistent
+volumes, or filesystem/mount intent. Nonempty device features and `minCapacity`
+fail until a capability/capacity resolver exists. DPU/BlueField and `other` device
+requirements still fail explicitly. Unsupported vendors/models never fall back.
+
+The translator resolves each selected node's requirements and expands existing
+count semantics, using one when omitted. It creates private immutable device
+records with generated name and resolved model in per-node GPU/FPGA/NVMe tuples.
+Within each family, authored request order is retained and counts expand in place.
+Names are `gpuN`, `fpgaN`, and `nvmeN`, independently numbered per node/family;
+they cannot collide with existing `nicN` component names. The renderer emits each
+record as `{name, model}`, using the same name for its map key, with no `count`.
+Unrequested families and DPU remain `{}`. Network/NIC/service behavior is unchanged.
+
+Compatibility is based on the supplied downstream review: fabric-generic-cluster
+1.0.20, branch `main`, revision `802a91190528c4e9d2f238464ee1bbcdd654ec97`, and
+inspected fabrictestbed-extensions/FABlib 1.9.5, fabrictestbed 1.9.0, fabric-fim 1.9.0.
+The downstream dependency is not exactly pinned, so this is a version-specific
+compatibility context rather than a timeless FABRIC contract.
+
+The reviewed downstream parser is permissive; deployment helpers may catch
+component-add errors and continue. Offline translation must validate supported
+models itself to avoid knowingly emitting intent that could be dropped downstream.
+Map keys and inner names must agree because probing and deployment use different
+ones. SN1022 is allocatable in the inspected APIs, but downstream host discovery
+does not reliably include its requirements in candidate-host filtering. No live
+workaround or availability claim is added.
+
+GPU/FPGA/NVMe may require project permissions and site availability; these remain
+runtime concerns. The adapter performs no discovery, permission checks, scheduling,
+or submission. The [PCI fixture](../tests/fixtures/fabric-pci-devices.yaml) is
+provider-neutral intent with count expansion and ordinary management Ethernet;
+it requires no live hardware. Existing manual acceptance does not establish
+downstream provisioning success for these newly rendered devices.

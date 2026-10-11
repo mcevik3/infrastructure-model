@@ -1,11 +1,16 @@
 """Mechanical historical YAML dictionary rendering; no topology resolution."""
 
-from .plan import _FabricNodePlan, _FabricRenderPlan
+from .plan import _FabricDevicePlan, _FabricNodePlan, _FabricRenderPlan
 
 
 def _guest_interface_names(ordinal: int) -> tuple[str, str]:
     """Guest names follow authored attachment order, independently of components."""
     return f"eth{ordinal}", f"conn-eth{ordinal}"
+
+
+def _devices(plans: tuple[_FabricDevicePlan, ...]) -> dict:
+    # Downstream probing uses the key; deployment uses the inner name.
+    return {device.name: {"name": device.name, "model": device.model} for device in plans}
 
 
 def _node(plan: _FabricNodePlan) -> dict:
@@ -29,7 +34,8 @@ def _node(plan: _FabricNodePlan) -> dict:
         "name": plan.name, "hostname": plan.name, "site": plan.site,
         "worker": plan.worker if plan.worker is not None else "",
         "capacity": {"cpu": plan.cpu, "ram": plan.ram, "disk": plan.disk, "os": plan.image},
-        "pci": {"dpu": {}, "fpga": {}, "gpu": {}, "nvme": {}, "network": components},
+        "pci": {"dpu": {}, "fpga": _devices(plan.fpgas), "gpu": _devices(plan.gpus),
+                "nvme": _devices(plan.nvmes), "network": components},
         "persistent_storage": {"volume": {}},
         "specific": {"openstack": {role: "true" if role in plan.roles else "false"
                                    for role in ("control", "network", "compute", "storage")}},

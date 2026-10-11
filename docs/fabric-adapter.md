@@ -9,7 +9,8 @@ render describes intent and does not prove deployability.
 Version 0.2 adds exact ConnectX-6 component realization and consumes node-local
 `adapterGroup` intent. Existing plain Ethernet renders and the public API/config
 remain unchanged. The first L2PTP increment adds addressless point-to-point
-topology for two dedicated endpoints at two sites.
+topology for two dedicated endpoints at two sites. PCI device realization adds
+exact supported GPU, FPGA, and NVMe models with generic count expansion.
 
 The adapter either represents supported intent faithfully or raises
 `FabricTranslationError`. It never rounds capacities, guesses placement/images,
@@ -60,6 +61,10 @@ Network `default_gateways` and `dns_servers` preserve `None` for unspecified,
 already contain their prefix length, gateway, and family-specific DNS server.
 The private node plan carries `worker: str | None`: a resolved FABRIC worker
 identifier, or `None` when no exact host is requested. No plan type becomes public API.
+Private frozen device records contain generated `name` and resolved `model`,
+held in the node plan's `gpus`, `fpgas`, and `nvmes` tuples. The translator resolves
+each device request and expands its count; the renderer only serializes those
+records. Network component/interface plans are independent of these devices.
 
 Errors carry `entity`, `path`, `source`, and `reason` attributes where available.
 Invalid core models also fail before rendering; the Python adapter wraps those
@@ -144,8 +149,8 @@ mapping supplies `capacity.os`.
 Omitted architecture and `compute.architecture: x86_64` are supported. Explicit
 x86_64 is a compatibility precondition for the FABRIC target; no architecture
 field is fabricated in the historical output. Other explicit architectures, such
-as aarch64, fail. Explicit CPU frequency and disk medium/protocol constraints
-remain unsupported and fail, as do device requirements, persistent/block-storage
+as aarch64, fail. Explicit CPU frequency and root-disk medium/protocol constraints
+remain unsupported and fail, as do unsupported device requirements, persistent/block-storage
 configuration, filesystem/mount intent, and unsupported semantic roles.
 
 Unconsumed namespaced extensions are opaque metadata. Their presence alone does
@@ -168,8 +173,104 @@ to produce one `NIC_Basic` component. An empty `features` list adds no constrain
 and is also accepted. Ordinary Ethernet is never upgraded to dedicated hardware.
 Missing interface type, non-Ethernet types, speed constraints, and nonempty
 features (including RDMA or SR-IOV) still fail, even with a supported dedicated
-identity. No device requirements are supported, including GPU, FPGA,
-storage/NVMe, or DPU requests; an empty devices list is valid.
+identity. Independent GPU/FPGA/NVMe component requests use the resolver below;
+DPU and `other` devices remain unsupported. Omitted or empty device lists retain
+the historical empty device-family dictionaries.
+
+## GPU, FPGA, and NVMe components
+
+Device intent stays in `ClusterNode.requirements.devices`. Each entry requires
+its generic `name` and `type`; selectors belong under `constraints`. The adapter
+accepts only these exact model mappings:
+
+| Generic type | `constraints.model` | Accepted explicit `constraints.vendor` | FABRIC target model |
+| --- | --- | --- | --- |
+| `gpu` | `Tesla T4` | `NVIDIA` | `GPU_TeslaT4` |
+| `gpu` | `RTX6000` | `NVIDIA` | `GPU_RTX6000` |
+| `gpu` | `A30` | `NVIDIA` | `GPU_A30` |
+| `gpu` | `A40` | `NVIDIA` | `GPU_A40` |
+| `fpga` | `U280`, explicit alias `Alveo U280` | `AMD`, `Xilinx` | `FPGA_Xilinx_U280` |
+| `fpga` | `SN1022` | `AMD`, `Xilinx` | `FPGA_Xilinx_SN1022` |
+| `storage` with `constraints.protocol: nvme` | `P4510` | `Intel` | `NVME_P4510` |
+
+Vendor omission is allowed with an exact supported model. Listed vendor/product
+aliases are explicit, case-sensitive resolver entries: there is no substring,
+case-folding, vendor-only selection, or automatic model fallback. In particular,
+the Tesla target is `GPU_TeslaT4`, never `GPU_Tesla_T4`. Unsupported models,
+wrong-family models, incompatible vendors, and missing model identity fail with
+a diagnostic identifying the generic device requirement and source path.
+
+NVMe needs all of `type: storage`, `constraints.protocol: nvme`, and
+`constraints.model: P4510`. Storage without a protocol, or with another protocol,
+does not imply NVMe. For example:
+
+```yaml
+requirements:
+  devices:
+    - name: local-nvme
+      type: storage
+      constraints: {protocol: nvme, vendor: Intel, model: P4510}
+```
+
+This is an independently allocated PCI component. It neither supplies root-disk
+`capacity.disk` nor populates `persistent_storage.volume`, filesystem, or mount
+configuration. `medium` is not a core device-constraint field. Explicit
+`minCapacity` and nonempty device `features` requests fail because this increment
+has no static capacity/feature resolver; an exact model does not silently satisfy
+those extra constraints. Empty feature lists impose no constraint. Opaque
+extensions keep the adapter-wide uninterpreted, unmodified-source behavior.
+
+Generic `count` is interpreted as one when omitted and expanded into repeated
+device records when present. No downstream `count` field is emitted. Numbering
+is independent per node and family: `gpu1`, `gpu2`, …; `fpga1`, `fpga2`, …;
+`nvme1`, `nvme2`, …. Within each family, requests retain authored order and each
+count expands in place. Identical requests are not deduplicated. These generated
+prefixes are distinct from network `nicN` names, regardless of source request names.
+
+Each family is a mapping whose entries contain exactly `name` and `model`, with
+the map key equal to the inner name:
+
+```yaml
+pci:
+  gpu:
+    gpu1:
+      name: gpu1
+      model: GPU_A40
+    gpu2:
+      name: gpu2
+      model: GPU_A40
+```
+
+FPGA rendering allocates the component only; it omits the optional downstream
+`interfaces` field. DPU/BlueField remains a separate future design pass:
+`type: dpu` fails explicitly and `pci.dpu` stays `{}`. No PCI device request is converted
+into a network attachment or changes network-service resolution.
+
+### Reviewed downstream compatibility context
+
+This device contract follows the supplied read-only review of
+`fabric-generic-cluster` **1.0.20**, branch `main`, revision
+`802a91190528c4e9d2f238464ee1bbcdd654ec97`, with locally inspected
+`fabrictestbed-extensions`/FABlib **1.9.5**, `fabrictestbed` **1.9.0**, and
+`fabric-fim` **1.9.0**. The downstream dependency is not exactly pinned; these
+identifiers and behaviors are compatibility evidence for that context, not a
+universal contract across FABRIC versions.
+
+Downstream probing uses the family map key while deployment uses the inner
+`name`, so both must match. The reviewed parser is permissive and deployment
+helpers can catch component-add exceptions and continue, potentially submitting
+a slice missing requested components. This adapter therefore validates every
+supported mapping before emitting YAML rather than relying on downstream rejection.
+
+`FPGA_Xilinx_SN1022` is allocatable through the inspected component APIs, but the
+reviewed downstream host-discovery logic does not reliably include SN1022 when
+deriving host requirements. Rendering it does not claim reliable candidate-host
+filtering; no live workaround is implemented.
+
+GPU/FPGA/NVMe allocation may require FABRIC project permissions and availability
+at the requested Site. The offline adapter checks neither. It performs no site
+inventory lookup, host discovery, scheduling, or slice submission, and an exact
+hostRef is not evidence that requested devices are available on that host.
 
 ## Dedicated ConnectX-6 and adapter groups
 
@@ -326,8 +427,9 @@ ordinal for `ethN`/`conn-ethN`. For authored order data (group A), management
 No generic hostname or guest interface naming fields are added.
 
 Each node emits its generic name as `name` and `hostname`, mapped `site`, a resolved
-`worker` (or `''` without hostRef), capacities, empty PCI `dpu`/`fpga`/`gpu`/`nvme` dictionaries, and
-`persistent_storage: {volume: {}}`. All four OpenStack flags are string
+`worker` (or `''` without hostRef), capacities, PCI device/network mappings,
+`dpu: {}`, and `persistent_storage: {volume: {}}`. Unrequested GPU/FPGA/NVMe
+families remain empty dictionaries. All four OpenStack flags are string
 `'true'`/`'false'` values for the supported `openstack.control`, `.network`,
 `.compute`, and `.storage` roles. No Ansible, postboot, SELinux, or generated
 topology header is emitted. Networks without prefixes omit `subnet`; interfaces
@@ -341,6 +443,8 @@ infra-model render fabric examples/multi-site/ \
 infra-model render fabric tests/fixtures/fabric-dedicated-nic.yaml \
   --config adapter-configs/fabric.yaml
 infra-model render fabric tests/fixtures/fabric-l2ptp.yaml \
+  --config adapter-configs/fabric.yaml
+infra-model render fabric tests/fixtures/fabric-pci-devices.yaml \
   --config adapter-configs/fabric.yaml
 infra-model render fabric examples/ \
   --config adapter-configs/fabric.yaml --cluster openstack-lab > _slice_topology.yml
@@ -365,7 +469,13 @@ The [L2PTP fixture](../tests/fixtures/fabric-l2ptp.yaml) contains two VMs at
 point-to-point Network. It uses the existing Site/image configuration and renders
 one L2PTP service with SRI and UKY endpoints.
 
-Live FABRIC operations, facility ports, L2PTP guest VLAN/IP configuration, other dedicated NIC models, device rendering,
+The [PCI-device fixture](../tests/fixtures/fabric-pci-devices.yaml) uses an existing
+Site/image mapping for one VM with ordinary Ethernet management, two A40 GPUs,
+one U280 FPGA, and one P4510 NVMe. It demonstrates `gpu1`, `gpu2`, `fpga1`, and
+`nvme1` without asserting live hardware availability. It is outside recursive
+examples to avoid duplicate Site identities.
+
+Live FABRIC operations, facility ports, L2PTP guest VLAN/IP configuration, other dedicated NIC models, DPU/unsupported device rendering,
 Layer-3 services, provider-managed addressing, DHCP, Ansible, postboot, SELinux,
 and filesystem/mount rendering remain outside this increment.
 

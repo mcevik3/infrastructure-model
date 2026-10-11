@@ -48,6 +48,12 @@ class _FabricNetworkComponentPlan:
 
 
 @dataclass(frozen=True)
+class _FabricDevicePlan:
+    name: str
+    model: str
+
+
+@dataclass(frozen=True)
 class _FabricNodePlan:
     name: str
     site: str
@@ -58,6 +64,9 @@ class _FabricNodePlan:
     roles: tuple[str, ...]
     components: tuple[_FabricNetworkComponentPlan, ...]
     worker: str | None
+    gpus: tuple[_FabricDevicePlan, ...]
+    fpgas: tuple[_FabricDevicePlan, ...]
+    nvmes: tuple[_FabricDevicePlan, ...]
 
 
 @dataclass(frozen=True)

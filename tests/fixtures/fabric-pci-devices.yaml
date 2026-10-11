@@ -1,0 +1,47 @@
+apiVersion: infra.model/v0alpha1
+kind: Site
+metadata:
+  name: lab-site
+spec: {}
+---
+apiVersion: infra.model/v0alpha1
+kind: Network
+metadata:
+  name: management
+spec:
+  layer: layer2
+  siteRefs: [site/lab-site]
+---
+apiVersion: infra.model/v0alpha1
+kind: Cluster
+metadata:
+  name: pci-devices
+spec:
+  siteRef: site/lab-site
+  image: {name: Rocky Linux, version: '9'}
+  nodes:
+    - name: vm-a
+      realization: {type: vm}
+      requirements:
+        compute:
+          architecture: x86_64
+          cpu: {count: 2, unit: vcpu}
+        memory:
+          capacity: {value: 4, unit: GiB}
+        storage:
+          capacity: {value: 20, unit: GiB}
+        devices:
+          - name: accelerators
+            type: gpu
+            count: 2
+            constraints: {vendor: NVIDIA, model: A40}
+          - name: fpga
+            type: fpga
+            constraints: {vendor: AMD, model: U280}
+          - name: local-nvme
+            type: storage
+            constraints: {protocol: nvme, vendor: Intel, model: P4510}
+      networkAttachments:
+        - name: management
+          networkRef: network/management
+          interfaceRequirements: {type: ethernet}
