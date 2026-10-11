@@ -26,8 +26,10 @@ _DEVICE_MODELS = {
     "gpu": {"Tesla T4": "GPU_TeslaT4", "RTX6000": "GPU_RTX6000", "A30": "GPU_A30", "A40": "GPU_A40"},
     "fpga": {"U280": "FPGA_Xilinx_U280", "Alveo U280": "FPGA_Xilinx_U280", "SN1022": "FPGA_Xilinx_SN1022"},
     "storage": {"P4510": "NVME_P4510"},
+    "dpu": {"BlueField-2-ConnectX-6": "NIC_BlueField_2_ConnectX_6",
+            "ConnectX-7-100": "NIC_ConnectX_7_100", "ConnectX-7-400": "NIC_ConnectX_7_400"},
 }
-_DEVICE_VENDORS = {"gpu": {"NVIDIA"}, "fpga": {"AMD", "Xilinx"}, "storage": {"Intel"}}
+_DEVICE_VENDORS = {"gpu": {"NVIDIA"}, "fpga": {"AMD", "Xilinx"}, "storage": {"Intel"}, "dpu": {"NVIDIA"}}
 
 
 @dataclass(frozen=True)
@@ -98,7 +100,7 @@ def _device_model(entry: Entry) -> str:
 
 
 def _devices(node: Entry, registry: Registry) -> dict[str, tuple[_FabricDevicePlan, ...]]:
-    families: dict[str, list[_FabricDevicePlan]] = {"gpu": [], "fpga": [], "nvme": []}
+    families: dict[str, list[_FabricDevicePlan]] = {"gpu": [], "fpga": [], "nvme": [], "dpu": []}
     for required in node.data.get("requirements", {}).get("devices", []):
         model = _device_model(registry.entries[required["id"]])
         family = "nvme" if required["type"] == "storage" else required["type"]
@@ -327,5 +329,5 @@ def _translate(model: InfrastructureModel, *, cluster: str | None, config: Fabri
         components = _components(node_components[node.id], networks)
         plans.append(_FabricNodePlan(node.data["name"], sites[node.id], cpu, ram, disk, config.images[identity],
                                      tuple(role.removeprefix("openstack.") for role in roles), components, worker=worker,
-                                     gpus=devices["gpu"], fpgas=devices["fpga"], nvmes=devices["nvme"]))
+                                     gpus=devices["gpu"], fpgas=devices["fpga"], nvmes=devices["nvme"], dpus=devices["dpu"]))
     return _FabricRenderPlan(tuple(plans), tuple(networks.values()))

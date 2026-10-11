@@ -597,3 +597,47 @@ or submission. The [PCI fixture](../tests/fixtures/fabric-pci-devices.yaml) is
 provider-neutral intent with count expansion and ordinary management Ethernet;
 it requires no live hardware. Existing manual acceptance does not establish
 downstream provisioning success for these newly rendered devices.
+
+## Offline FABRIC allocation-only DPU realization
+
+Independent `requirements.devices[type=dpu]` now resolves exact model identities:
+`BlueField-2-ConnectX-6` → `NIC_BlueField_2_ConnectX_6`, `ConnectX-7-100` →
+`NIC_ConnectX_7_100`, and `ConnectX-7-400` → `NIC_ConnectX_7_400`. Vendor may be
+omitted or exactly `NVIDIA`; other explicit vendors fail. There are no shorthand
+aliases or fuzzy matching. In particular, `BlueField-3` cannot choose between the
+100G and 400G forms associated with that generation in the inspected FIM catalog.
+Missing models and nonempty features fail; empty/omitted features are allowed.
+Core continues to forbid DPU protocol/minCapacity constraints.
+
+The private node plan gains a `dpus` tuple of existing immutable device records.
+Counts expand in authored order into independent per-node `dpuN` names, using one
+when omitted. Each `pci.dpu` entry contains exactly `name` and `model`, with map
+key equal to inner name and no count or interfaces. No demand keeps `dpu: {}`.
+This uses the downstream DPU parser's optional interfaces and allocation path
+through `add_dpus_to_node()` and `Node.add_component(name, model)`.
+
+DPU NetworkAttachments remain unsupported even when a device request matches
+their name/vendor/model or they use adapterGroup. Existing core intent provides
+no explicit relationship between the two requests. No implicit binding, merging,
+or deduplication is introduced. Core schema/validation, network plans/services,
+GPU/FPGA/NVMe resolution, configuration, and public API remain unchanged.
+
+Compatibility follows fabric-generic-cluster 1.0.20, `main` revision
+`802a91190528c4e9d2f238464ee1bbcdd654ec97`, FABlib 1.9.5, fabrictestbed 1.9.0, and
+FIM 1.9.0. The dependency is not exactly pinned; these are reviewed-version facts.
+The adapter resolves supported models itself because downstream parsing is
+permissive and deployment can swallow component-add exceptions. BlueField-2 is
+allocatable in the inspected APIs, but host discovery lacks the equivalent
+filtering coverage of the two ConnectX-7 DPU forms. Offline rendering makes no
+host-discovery guarantee and adds no live workaround.
+
+The [DPU fixture](../tests/fixtures/fabric-dpu.yaml) requests two independent DPUs
+with ordinary NIC_Basic management. Allocation implies no ARM OS, RShim, BMC,
+tmfifo_net0, management addressing/topology, bundle installation, operating mode,
+or DPU-side configuration. FABlib's reviewed `Component.configure()` behavior
+does not prove automatic ARM initialization downstream. Permissions, inventory,
+availability, host selection, scheduling, and submission remain runtime concerns.
+Earlier manual acceptance does not establish provisioning for this increment.
+
+Future design: an explicit node-local relationship between a requested DPU device
+instance and NetworkAttachments/adapterGroup if unified DPU networking is desired.

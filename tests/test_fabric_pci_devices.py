@@ -190,7 +190,7 @@ def test_device_plan_is_private_immutable_and_source_extensions_remain_opaque(so
     (requirement("storage", "NVME_P4510", protocol="nvme"), "/constraints/model"),
     (requirement("storage", "P4510", protocol="nvme", vendor="Samsung"), "/constraints/vendor"),
     (requirement("storage", "P4510", protocol="nvme", vendor="intel"), "/constraints/vendor"),
-    (requirement("dpu", "BlueField"), "/type"),
+    (requirement("dpu", "BlueField"), "/constraints/model"),
     (requirement("other", "A40"), "/type"),
 ])
 def test_unsupported_requests_fail_per_requirement_without_fallback(source, config, requested, path):
@@ -284,5 +284,5 @@ def test_invalid_device_cli_does_not_emit_partial_yaml(source, tmp_path, capsys)
     assert main(["render", "fabric", str(path), "--config", str(CONFIG)]) == 1
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert "/requirements/devices/3/type" in captured.err
-    assert "dpu device requirements remain unsupported" in captured.err
+    assert "/requirements/devices/3/constraints/model" in captured.err
+    assert "dpu device requirements need an exact supported model" in captured.err

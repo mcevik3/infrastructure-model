@@ -11,6 +11,7 @@ Version 0.2 adds exact ConnectX-6 component realization and consumes node-local
 remain unchanged. The first L2PTP increment adds addressless point-to-point
 topology for two dedicated endpoints at two sites. PCI device realization adds
 exact supported GPU, FPGA, and NVMe models with generic count expansion.
+Independent DPU requests now support allocation only, without DPU interfaces.
 
 The adapter either represents supported intent faithfully or raises
 `FabricTranslationError`. It never rounds capacities, guesses placement/images,
@@ -62,7 +63,7 @@ already contain their prefix length, gateway, and family-specific DNS server.
 The private node plan carries `worker: str | None`: a resolved FABRIC worker
 identifier, or `None` when no exact host is requested. No plan type becomes public API.
 Private frozen device records contain generated `name` and resolved `model`,
-held in the node plan's `gpus`, `fpgas`, and `nvmes` tuples. The translator resolves
+held in the node plan's `gpus`, `fpgas`, `nvmes`, and `dpus` tuples. The translator resolves
 each device request and expands its count; the renderer only serializes those
 records. Network component/interface plans are independent of these devices.
 
@@ -173,8 +174,8 @@ to produce one `NIC_Basic` component. An empty `features` list adds no constrain
 and is also accepted. Ordinary Ethernet is never upgraded to dedicated hardware.
 Missing interface type, non-Ethernet types, speed constraints, and nonempty
 features (including RDMA or SR-IOV) still fail, even with a supported dedicated
-identity. Independent GPU/FPGA/NVMe component requests use the resolver below;
-DPU and `other` devices remain unsupported. Omitted or empty device lists retain
+identity. Independent GPU/FPGA/NVMe and allocation-only DPU requests use the
+resolvers below; `other` devices remain unsupported. Omitted or empty device lists retain
 the historical empty device-family dictionaries.
 
 ## GPU, FPGA, and NVMe components
@@ -242,9 +243,8 @@ pci:
 ```
 
 FPGA rendering allocates the component only; it omits the optional downstream
-`interfaces` field. DPU/BlueField remains a separate future design pass:
-`type: dpu` fails explicitly and `pci.dpu` stays `{}`. No PCI device request is converted
-into a network attachment or changes network-service resolution.
+`interfaces` field. No PCI device request is converted into a network attachment
+or changes network-service resolution.
 
 ### Reviewed downstream compatibility context
 
@@ -271,6 +271,71 @@ GPU/FPGA/NVMe allocation may require FABRIC project permissions and availability
 at the requested Site. The offline adapter checks neither. It performs no site
 inventory lookup, host discovery, scheduling, or slice submission, and an exact
 hostRef is not evidence that requested devices are available on that host.
+
+## Allocation-only DPU components
+
+Independent `requirements.devices` entries with `type: dpu` support exactly:
+
+| `constraints.model` | FABRIC target model |
+| --- | --- |
+| `BlueField-2-ConnectX-6` | `NIC_BlueField_2_ConnectX_6` |
+| `ConnectX-7-100` | `NIC_ConnectX_7_100` |
+| `ConnectX-7-400` | `NIC_ConnectX_7_400` |
+
+Vendor may be omitted or exactly `NVIDIA`; every other explicit vendor fails.
+Model is required, with no fuzzy matching or aliases. `BlueField`, `BlueField-2`,
+and `BlueField-3` are insufficient. The inspected FIM catalog associates the two
+ConnectX-7 forms with BlueField-3-generation hardware; the exact selector must
+distinguish 100G from 400G, with no automatic default.
+
+Features may be omitted or empty. Nonempty `constraints.features` fails because
+model identity does not prove arbitrary capabilities. Core already forbids
+`protocol` and `minCapacity` for DPU requests; no provider semantics are added.
+
+Count defaults semantically to one and expands in authored requirement order
+using an independent per-node `dpu1`, `dpu2`, … counter. Each private device
+record renders exactly `name` and `model`; map key equals inner name. No downstream
+`count` or `interfaces` field is emitted. Without DPU demand, `pci.dpu` remains `{}`.
+For example, `ConnectX-7-100` with `count: 2` renders:
+
+```yaml
+pci:
+  dpu:
+    dpu1:
+      name: dpu1
+      model: NIC_ConnectX_7_100
+    dpu2:
+      name: dpu2
+      model: NIC_ConnectX_7_100
+```
+
+The reviewed downstream path is YAML → DPU model → `add_dpus_to_node()` →
+`Node.add_component(name, model)`. Its parser requires name/model and permits
+interfaces to be omitted. The adapter validates exact mappings before rendering;
+permissive parsing and swallowed component-add exceptions cannot prove success.
+
+DPU-backed NetworkAttachments remain unsupported: `adapter.class: dpu` fails
+even with a matching device request or `adapterGroup`. Device and interface
+requirements have no explicit link. Matching name/vendor/model selectors do not
+establish one, and neither implicit binding nor deduplication occurs.
+
+Compatibility uses the reviewed fabric-generic-cluster **1.0.20**, `main` revision
+`802a91190528c4e9d2f238464ee1bbcdd654ec97`, FABlib **1.9.5**, fabrictestbed **1.9.0**,
+and FIM **1.9.0**. These are version-specific observations. BlueField-2 is a verified
+allocatable component identifier, but downstream host discovery lacks equivalent
+filtering coverage to the two ConnectX-7 forms. Rendering does not promise reliable
+host pre-filtering; no live workaround is added.
+
+Allocation does not imply DPU configuration. ARM OS, `tmfifo_net0`, RShim, BMC,
+management addresses, bundle installation, operating mode, DPU-side Linux, and
+host/DPU management topology remain out of scope. The reviewed FABlib
+`Component.configure()` behavior does not establish automatic ARM initialization
+by fabric-generic-cluster. Project permissions, inventory, site availability,
+host selection, scheduling, and submission remain runtime concerns, with no
+offline checks. Earlier manual acceptance does not establish DPU provisioning.
+
+Future design: an explicit node-local relationship between a requested DPU device
+instance and NetworkAttachments/adapterGroup if unified DPU networking is desired.
 
 ## Dedicated ConnectX-6 and adapter groups
 
@@ -320,7 +385,7 @@ Matching is exact. Incompatible vendors, vendor-only selection, ConnectX-5,
 ConnectX-7, and other models fail. A model identity does not prove requested speed
 or features: `minSpeed`, RDMA, SR-IOV, and other nonempty feature requirements
 remain unsupported on every group member. Automatic model selection, SmartNIC,
-DPU, port availability scheduling, and live inventory remain out of scope.
+DPU interfaces, port availability scheduling, and live inventory remain out of scope.
 
 > The generic model describes WHAT network capability is required; the FABRIC
 > adapter decides HOW that capability is realized.
@@ -428,7 +493,7 @@ No generic hostname or guest interface naming fields are added.
 
 Each node emits its generic name as `name` and `hostname`, mapped `site`, a resolved
 `worker` (or `''` without hostRef), capacities, PCI device/network mappings,
-`dpu: {}`, and `persistent_storage: {volume: {}}`. Unrequested GPU/FPGA/NVMe
+and `persistent_storage: {volume: {}}`. Unrequested GPU/FPGA/NVMe/DPU
 families remain empty dictionaries. All four OpenStack flags are string
 `'true'`/`'false'` values for the supported `openstack.control`, `.network`,
 `.compute`, and `.storage` roles. No Ansible, postboot, SELinux, or generated
@@ -445,6 +510,8 @@ infra-model render fabric tests/fixtures/fabric-dedicated-nic.yaml \
 infra-model render fabric tests/fixtures/fabric-l2ptp.yaml \
   --config adapter-configs/fabric.yaml
 infra-model render fabric tests/fixtures/fabric-pci-devices.yaml \
+  --config adapter-configs/fabric.yaml
+infra-model render fabric tests/fixtures/fabric-dpu.yaml \
   --config adapter-configs/fabric.yaml
 infra-model render fabric examples/ \
   --config adapter-configs/fabric.yaml --cluster openstack-lab > _slice_topology.yml
@@ -475,7 +542,12 @@ one U280 FPGA, and one P4510 NVMe. It demonstrates `gpu1`, `gpu2`, `fpga1`, and
 `nvme1` without asserting live hardware availability. It is outside recursive
 examples to avoid duplicate Site identities.
 
-Live FABRIC operations, facility ports, L2PTP guest VLAN/IP configuration, other dedicated NIC models, DPU/unsupported device rendering,
+The [DPU fixture](../tests/fixtures/fabric-dpu.yaml) uses the same Site/image mapping
+for one VM with ordinary Ethernet management and two independent `ConnectX-7-100`
+DPU allocations. It renders `dpu1` and `dpu2` without DPU interfaces or live
+hardware requirements, and stays outside recursive examples.
+
+Live FABRIC operations, facility ports, L2PTP guest VLAN/IP configuration, other dedicated NIC models, DPU interface/unsupported device rendering,
 Layer-3 services, provider-managed addressing, DHCP, Ansible, postboot, SELinux,
 and filesystem/mount rendering remain outside this increment.
 

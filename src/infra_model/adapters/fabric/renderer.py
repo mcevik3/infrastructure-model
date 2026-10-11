@@ -34,7 +34,7 @@ def _node(plan: _FabricNodePlan) -> dict:
         "name": plan.name, "hostname": plan.name, "site": plan.site,
         "worker": plan.worker if plan.worker is not None else "",
         "capacity": {"cpu": plan.cpu, "ram": plan.ram, "disk": plan.disk, "os": plan.image},
-        "pci": {"dpu": {}, "fpga": _devices(plan.fpgas), "gpu": _devices(plan.gpus),
+        "pci": {"dpu": _devices(plan.dpus), "fpga": _devices(plan.fpgas), "gpu": _devices(plan.gpus),
                 "nvme": _devices(plan.nvmes), "network": components},
         "persistent_storage": {"volume": {}},
         "specific": {"openstack": {role: "true" if role in plan.roles else "false"

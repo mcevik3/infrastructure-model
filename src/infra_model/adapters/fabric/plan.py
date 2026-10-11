@@ -67,6 +67,7 @@ class _FabricNodePlan:
     gpus: tuple[_FabricDevicePlan, ...]
     fpgas: tuple[_FabricDevicePlan, ...]
     nvmes: tuple[_FabricDevicePlan, ...]
+    dpus: tuple[_FabricDevicePlan, ...]
 
 
 @dataclass(frozen=True)
