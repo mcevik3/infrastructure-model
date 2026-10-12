@@ -1,0 +1,60 @@
+apiVersion: infra.model/v0alpha1
+kind: Site
+metadata:
+  name: lab-site
+spec: {}
+---
+apiVersion: infra.model/v0alpha1
+kind: Network
+metadata:
+  name: management
+spec:
+  layer: layer2
+  connectivity: multipoint
+  siteRefs:
+    - site/lab-site
+---
+apiVersion: infra.model/v0alpha1
+kind: Cluster
+metadata:
+  name: fabric-gpu-basic
+spec:
+  siteRef: site/lab-site
+  image:
+    name: Rocky Linux
+    version: "9"
+
+  nodes:
+    - name: gpu-node
+      realization:
+        type: vm
+
+      requirements:
+        compute:
+          architecture: x86_64
+          cpu:
+            count: 4
+            unit: vcpu
+
+        memory:
+          capacity:
+            value: 16
+            unit: GiB
+
+        storage:
+          capacity:
+            value: 20
+            unit: GiB
+
+        devices:
+          - name: gpu
+            type: gpu
+            constraints:
+              vendor: NVIDIA
+              model: A30
+
+      networkAttachments:
+        - name: management
+          networkRef: network/management
+          interfaceRequirements:
+            type: ethernet
