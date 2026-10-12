@@ -1,3 +1,4 @@
+import hashlib
 import os
 from pathlib import Path
 import subprocess
@@ -12,6 +13,24 @@ from conftest import ROOT
 
 
 CONFIG = ROOT / "adapter-configs/fabric.yaml"
+
+
+# CLI output captured before ConnectX-5 support: guard the existing byte contract.
+@pytest.mark.parametrize("path,digest", [
+    ("examples/fabric-like", "36d8090013d9378d53f625bc51e9716196d545ce66a5f72cd947516b0eef85b1"),
+    ("examples/multi-site", "aab5d6102154c71bf2d29a49ea10217f92cadda19e6be0f5ed0796945f205ea1"),
+    ("tests/fixtures/fabric-dedicated-nic.yaml", "027e2ee8d9e0c7c383f2ea778a8be613c82ad10e93519d4289263d7ec16fb493"),
+    ("tests/fixtures/fabric-l2ptp.yaml", "84c3c754f7698f32e459156c6b6564e26e20db5e8a325412d09a1964584fe239"),
+    ("tests/fixtures/fabric-pci-devices.yaml", "b070a76dc675d1a8def76f3171a8b16a8a506085276f5c39503f985474ab5b66"),
+    ("tests/fixtures/fabric-dpu.yaml", "9010bded8c3ff093adc8958963a7b13c243fbc440e71c9cbdcf844cca3939d26"),
+])
+def test_existing_render_bytes_remain_unchanged(capsys, path, digest):
+    outputs = []
+    for _ in range(2):
+        assert main(["render", "fabric", str(ROOT / path), "--config", str(CONFIG)]) == 0
+        outputs.append(capsys.readouterr().out.encode("utf-8"))
+    assert outputs[0] == outputs[1]
+    assert hashlib.sha256(outputs[0]).hexdigest() == digest
 
 
 @pytest.mark.parametrize("example,service", [("fabric-like", "L2Bridge"), ("multi-site", "L2STS")])

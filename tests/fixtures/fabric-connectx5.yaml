@@ -1,0 +1,78 @@
+apiVersion: infra.model/v0alpha1
+kind: Site
+metadata:
+  name: lab-site
+spec: {}
+---
+apiVersion: infra.model/v0alpha1
+kind: Network
+metadata:
+  name: management
+spec:
+  layer: layer2
+  siteRefs: [site/lab-site]
+---
+apiVersion: infra.model/v0alpha1
+kind: Network
+metadata:
+  name: data
+spec:
+  layer: layer2
+  siteRefs: [site/lab-site]
+  prefixes: [198.51.100.0/24, '2001:db8:1::/64']
+  defaultGateways:
+    - prefix: 198.51.100.0/24
+      address: 198.51.100.1
+    - prefix: '2001:db8:1::/64'
+      address: 'fe80::1'
+  dns:
+    servers: [198.51.100.53, '2001:db8:1::53']
+---
+apiVersion: infra.model/v0alpha1
+kind: Network
+metadata:
+  name: storage
+spec:
+  layer: layer2
+  siteRefs: [site/lab-site]
+  prefixes: [203.0.113.0/24, '2001:db8:2::/64']
+  defaultGateways: []
+  dns:
+    servers: [203.0.113.53, '2001:db8:2::53']
+---
+apiVersion: infra.model/v0alpha1
+kind: Cluster
+metadata:
+  name: dedicated-nic
+spec:
+  siteRef: site/lab-site
+  image: {name: Rocky Linux, version: '9'}
+  nodes:
+    - name: vm-a
+      realization: {type: vm}
+      requirements:
+        compute:
+          architecture: x86_64
+          cpu: {count: 2, unit: vcpu}
+        memory:
+          capacity: {value: 4, unit: GiB}
+        storage:
+          capacity: {value: 20, unit: GiB}
+      networkAttachments:
+        - name: management
+          networkRef: network/management
+          interfaceRequirements: {type: ethernet}
+        - name: data
+          networkRef: network/data
+          adapterGroup: highspeed-1
+          interfaceRequirements:
+            type: ethernet
+            adapter: {class: standard, vendor: NVIDIA, model: ConnectX-5}
+          addresses: [198.51.100.11, '2001:db8:1::11']
+        - name: storage
+          networkRef: network/storage
+          adapterGroup: highspeed-1
+          interfaceRequirements:
+            type: ethernet
+            adapter: {class: standard, vendor: NVIDIA}
+          addresses: [203.0.113.11, '2001:db8:2::11']

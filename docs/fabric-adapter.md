@@ -7,7 +7,8 @@ availability checks, slice submission, or other live operations. A successful
 render describes intent and does not prove deployability.
 
 Version 0.2 adds exact ConnectX-6 component realization and consumes node-local
-`adapterGroup` intent. Existing plain Ethernet renders and the public API/config
+`adapterGroup` intent; dedicated realization also supports exact ConnectX-5.
+Existing plain Ethernet renders and the public API/config
 remain unchanged. The first L2PTP increment adds addressless point-to-point
 topology for two dedicated endpoints at two sites. PCI device realization adds
 exact supported GPU, FPGA, and NVMe models with generic count expansion.
@@ -337,14 +338,28 @@ offline checks. Earlier manual acceptance does not establish DPU provisioning.
 Future design: an explicit node-local relationship between a requested DPU device
 instance and NetworkAttachments/adapterGroup if unified DPU networking is desired.
 
-## Dedicated ConnectX-6 and adapter groups
+## Dedicated ConnectX-5, ConnectX-6, and adapter groups
 
-The exact generic adapter model `ConnectX-6`, with vendor omitted or exactly
-`NVIDIA`, resolves to the FABRIC component model `NIC_ConnectX_6`. This is adapter
-capability resolution, not an external identity mapping; there is no `nicModels`
+The exact generic adapter models `ConnectX-5` and `ConnectX-6`, with vendor omitted
+or exactly `NVIDIA`, resolve to `NIC_ConnectX_5` and `NIC_ConnectX_6`, respectively.
+This is adapter capability resolution, not an external identity mapping; there is no `nicModels`
 configuration field. FABRIC component names stay out of the generic core schema.
 The existing core schema requires `class` whenever an adapter selector is present;
 this resolver accepts `standard` and rejects SmartNIC, DPU, and other classes.
+
+For a single ConnectX-5 attachment, the exact selector is:
+
+```yaml
+interfaceRequirements:
+  type: ethernet
+  adapter:
+    class: standard
+    vendor: NVIDIA
+    model: ConnectX-5
+```
+
+Omitting `vendor` is also supported: `{class: standard, model: ConnectX-5}`.
+The same adapterGroup behavior applies to both models:
 
 ```yaml
 networkAttachments:
@@ -366,14 +381,17 @@ The translator merges compatible explicit identity selectors across all members
 of one node-local group before choosing its component. A member may omit adapter
 identity entirely if another identifies the supported model. The example above
 produces one `NIC_ConnectX_6` with `iface1` and `iface2`, bound independently to
-`data` and `storage`. Core validation still owns identity-conflict checks.
+`data` and `storage`. Replacing its model selector with `ConnectX-5` produces
+one `NIC_ConnectX_5` with the same interfaces. Core validation still owns
+identity-conflict checks: a group cannot mix ConnectX-5 and ConnectX-6 or
+contradictory explicit vendors. An omitted vendor remains compatible with NVIDIA.
 
-Each ungrouped ConnectX-6 attachment gets its own component, using one interface;
+Each ungrouped dedicated attachment gets its own component, using one interface;
 the second physical port may remain unused. Identical requirements do not imply
 sharing. Explicit groups on one node create separate components, and the same
 group string on another node is unrelated. One-member groups are supported.
 
-FABRIC `NIC_ConnectX_6` is dual-port: an explicit group may contain at most two
+Both FABRIC components are dual-port: an explicit group may contain at most two
 attachments. Larger groups fail rather than being split. This is a provider
 realization limit, not a generic group cardinality rule. A group lacking a
 supported dedicated model also fails, even with only one member. Grouped plain
@@ -381,8 +399,8 @@ Ethernet cannot be represented faithfully by the current one-interface
 `NIC_Basic` realization; the translator neither splits that group nor invents a
 dedicated component.
 
-Matching is exact. Incompatible vendors, vendor-only selection, ConnectX-5,
-ConnectX-7, and other models fail. A model identity does not prove requested speed
+Matching is exact. Incompatible vendors, vendor-only selection, ConnectX-7,
+aliases, fuzzy spellings, and other models fail. A model identity does not prove requested speed
 or features: `minSpeed`, RDMA, SR-IOV, and other nonempty feature requirements
 remain unsupported on every group member. Automatic model selection, SmartNIC,
 DPU interfaces, port availability scheduling, and live inventory remain out of scope.
@@ -394,7 +412,21 @@ One networkAttachment must not be assumed universally to equal one physical
 NIC/component. Grouping changes component realization only; logical endpoint
 counts, network bindings, addresses, prefixes, gateways, and DNS remain independent
 for each attachment. Dedicated interfaces use the same network-service resolver
-as ordinary Ethernet; only supported dedicated interfaces qualify for L2PTP.
+as ordinary Ethernet for multipoint L2Bridge/L2STS. L2PTP remains restricted to
+resolved `NIC_ConnectX_6` interfaces; ConnectX-5 does not qualify.
+
+Component numbers follow first creation across both dedicated models and
+`NIC_Basic`. Guest `ethN`/`conn-ethN` names follow original attachment order,
+including interleaved groups. Plain Ethernet without a dedicated selector or
+adapterGroup continues to use implicit `NIC_Basic`.
+
+ConnectX-5 compatibility was verified against fabric-generic-cluster **1.0.20**,
+FABlib/fabrictestbed-extensions **1.9.5**, fabrictestbed **1.9.0**, and FIM **1.9.0**.
+The exact FABlib model `NIC_ConnectX_5` maps to FIM `SmartNIC_ConnectX_5`, with two
+provider interfaces. The [ConnectX-5 fixture](../tests/fixtures/fabric-connectx5.yaml)
+uses ordinary management plus grouped data/storage; its target differs from the
+ConnectX-6 fixture only in the dedicated component model. Rendering remains
+offline and establishes neither current availability nor successful provisioning.
 
 ## Network service and addressing
 
@@ -438,7 +470,7 @@ A selected point-to-point Network with one endpoint still fails provider
 eligibility. Multipoint selection is unchanged.
 
 Both endpoint interfaces must belong to resolved `NIC_ConnectX_6` components.
-NIC_Basic does not qualify, and plain Ethernet is never upgraded automatically.
+Neither NIC_Basic nor NIC_ConnectX_5 qualifies, and plain Ethernet is never upgraded automatically.
 An endpoint may be one port of a grouped component whose other port serves a
 different Network. Its dedicated identity may come from a compatible selector
 on another group member. Counts always use NetworkAttachments referencing this

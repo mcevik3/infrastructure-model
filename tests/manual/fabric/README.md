@@ -16,25 +16,25 @@ One Rocky Linux 9 VM with:
 - 4 vCPU
 - 16 GiB RAM
 - 20 GiB root disk
-- NVIDIA A40 GPU
+- NVIDIA A30 GPU
 - ordinary Ethernet management attachment
 
 Expected FABRIC components:
 
-- GPU_A40
+- GPU_A30
 - NIC_Basic
 
 ### gpu-dedicated-nic.yaml
 
 One Rocky Linux 9 VM with:
 
-- NVIDIA A40 GPU
+- NVIDIA A30 GPU
 - ordinary management Ethernet
 - dedicated ConnectX-6 data interface
 
 Expected FABRIC components:
 
-- GPU_A40
+- GPU_A30
 - NIC_Basic
 - NIC_ConnectX_6
 

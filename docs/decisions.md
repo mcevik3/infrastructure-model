@@ -641,3 +641,39 @@ Earlier manual acceptance does not establish provisioning for this increment.
 
 Future design: an explicit node-local relationship between a requested DPU device
 instance and NetworkAttachments/adapterGroup if unified DPU networking is desired.
+
+## Offline FABRIC dedicated ConnectX-5 realization
+
+The existing generic selector `interfaceRequirements: {type: ethernet, adapter:
+{class: standard, vendor: NVIDIA, model: ConnectX-5}}` now resolves exactly to
+`NIC_ConnectX_5`. Vendor may be omitted; an authored adapter still requires class
+`standard`. Other explicit vendors, aliases, fuzzy spellings, and vendor-only
+model inference remain unsupported. The resolver uses a static map for
+ConnectX-5 and ConnectX-6, with no core schema or validation changes.
+
+ConnectX-5 reuses the existing ConnectX-6 adapterGroup semantics: compatible
+selectors merge within a node-local group, including omitted vendor alongside
+explicit NVIDIA. Contradictory models or vendors fail core validation. One or
+two grouped attachments create one component; more than two fail without
+splitting. Ungrouped attachments and distinct groups remain separate even when
+their requirements match. The limit is provider-specific, not a core group rule.
+
+Existing private network component/interface plans and the renderer are reused.
+Component numbering follows first creation across NIC_Basic, ConnectX-5, and
+ConnectX-6. Interfaces retain independent binding/address data and authored
+attachment ordinals for ethN/conn-ethN. Target pci.network entries retain matching
+map key/inner name and the existing name/model/interfaces shape.
+
+Plain ungrouped Ethernet retains implicit NIC_Basic. L2Bridge/L2STS behavior is
+unchanged; L2PTP eligibility remains NIC_ConnectX_6-only and rejects ConnectX-5,
+including identity inherited from another group member. Other device mappings,
+including A30 and BlueField-2-ConnectX-6, public API/config, placement mappings,
+FABNet, and PTP time-service semantics are unchanged.
+
+Compatibility follows the read-only audit of fabric-generic-cluster 1.0.20,
+FABlib/fabrictestbed-extensions 1.9.5, fabrictestbed 1.9.0, and FIM 1.9.0.
+NIC_ConnectX_5 maps to FIM SmartNIC_ConnectX_5 and exposes two provider ports.
+The [focused fixture](../tests/fixtures/fabric-connectx5.yaml) exercises ordinary
+management plus grouped ConnectX-5 data/storage. Offline rendering does not
+establish current availability or provisioning success; no inventory-aware
+preflight, discovery, scheduling, or downstream package changes are introduced.

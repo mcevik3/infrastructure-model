@@ -183,11 +183,30 @@ def test_basic_interfaces_cannot_be_upgraded_for_l2ptp(source, config, basic_ind
         render(source, config)
 
 
-@pytest.mark.parametrize("model", ["ConnectX-5", "ConnectX-7"])
-def test_unsupported_dedicated_model_is_not_a_ptp_endpoint(source, config, model):
-    endpoints(source)[1]["interfaceRequirements"]["adapter"]["model"] = model
-    with pytest.raises(FabricTranslationError, match="requires exact model ConnectX-6"):
+def test_unsupported_dedicated_model_is_not_a_ptp_endpoint(source, config):
+    endpoints(source)[1]["interfaceRequirements"]["adapter"]["model"] = "ConnectX-7"
+    with pytest.raises(FabricTranslationError, match="requires exact model ConnectX-5 or ConnectX-6"):
         render(source, config)
+
+
+@pytest.mark.parametrize("indices", [(0,), (1,), (0, 1)])
+@pytest.mark.parametrize("inherited", [False, True])
+def test_connectx5_does_not_expand_l2ptp_eligibility(source, config, indices, inherited):
+    if inherited:
+        source.append({"apiVersion": "infra.model/v0alpha1", "kind": "Network",
+                       "metadata": {"name": "other"}, "spec": {"layer": "layer2"}})
+    for index in indices:
+        endpoint = endpoints(source)[index]
+        endpoint["interfaceRequirements"]["adapter"]["model"] = "ConnectX-5"
+        if inherited:
+            endpoint["adapterGroup"] = "hs1"
+            other = deepcopy(endpoint)
+            other.update(name="other", networkRef="network/other")
+            del endpoint["interfaceRequirements"]["adapter"]
+            cluster(source)["spec"]["nodes"][index]["networkAttachments"].append(other)
+    with pytest.raises(FabricTranslationError, match="L2PTP requires.*NIC_ConnectX_6.*resolved NIC_ConnectX_5") as caught:
+        render(source, config)
+    assert caught.value.path.endswith("/networkAttachments/0/interfaceRequirements")
 
 
 def test_more_than_two_attachments_still_fails_core(source, config):

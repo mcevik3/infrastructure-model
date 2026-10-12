@@ -30,6 +30,7 @@ _DEVICE_MODELS = {
             "ConnectX-7-100": "NIC_ConnectX_7_100", "ConnectX-7-400": "NIC_ConnectX_7_400"},
 }
 _DEVICE_VENDORS = {"gpu": {"NVIDIA"}, "fpga": {"AMD", "Xilinx"}, "storage": {"Intel"}, "dpu": {"NVIDIA"}}
+_DEDICATED_NIC_MODELS = {"ConnectX-5": "NIC_ConnectX_5", "ConnectX-6": "NIC_ConnectX_6"}
 
 
 @dataclass(frozen=True)
@@ -194,14 +195,15 @@ def _component_model(members: list[tuple[int, Entry]]) -> str:
     if "vendor" in selectors and selectors["vendor"] != "NVIDIA":
         _fail(owners["vendor"], "/interfaceRequirements/adapter/vendor",
               "dedicated interface requirements support only exact vendor NVIDIA")
-    if selectors.get("model") != "ConnectX-6":
+    model = _DEDICATED_NIC_MODELS.get(selectors.get("model"))
+    if model is None:
         context = f"adapterGroup {group!r}" if group is not None else "dedicated interface requirements"
         _fail(owners.get("model", first), "/interfaceRequirements/adapter/model" if group is None or "model" in selectors else "/adapterGroup",
-              f"{context} requires exact model ConnectX-6; no dedicated adapter is inferred")
+              f"{context} requires exact model ConnectX-5 or ConnectX-6; no dedicated adapter is inferred")
     if len(members) > 2:
         _fail(first, "/adapterGroup",
-              f"adapterGroup {group!r} has {len(members)} attachments; FABRIC NIC_ConnectX_6 supports at most two interfaces")
-    return "NIC_ConnectX_6"
+              f"adapterGroup {group!r} has {len(members)} attachments; FABRIC {model} supports at most two interfaces")
+    return model
 
 
 def _resolve_components(node: Entry, registry: Registry) -> tuple[_ComponentRealization, ...]:
