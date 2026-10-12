@@ -384,6 +384,24 @@ class SemanticValidator:
 
     def _network(self, entry: Entry) -> None:
         spec = entry.data["spec"]
+        for field in ("addressFamily", "addressAllocation", "reachability"):
+            if field in spec and spec.get("layer") != "layer3":
+                self._issue(entry, "network_layer3_required",
+                            f"{field} requires explicit layer: layer3", f"/spec/{field}")
+        if spec.get("addressAllocation") == "provider-managed":
+            if "addressFamily" not in spec:
+                self._issue(entry, "network_address_family_required",
+                            "provider-managed addressAllocation requires explicit addressFamily",
+                            "/spec/addressAllocation")
+            if "prefixes" in spec:
+                self._issue(entry, "provider_managed_addressing",
+                            "provider-managed addressAllocation requires prefixes to be omitted, even when empty",
+                            "/spec/prefixes")
+        family = spec.get("addressFamily")
+        for index, prefix in enumerate(spec.get("prefixes", [])):
+            if family is not None and family != f"ipv{ipaddress.ip_network(prefix).version}":
+                self._issue(entry, "network_address_family",
+                            f"prefix must match Network addressFamily {family}", f"/spec/prefixes/{index}")
         for index, reference in enumerate(spec.get("siteRefs", [])):
             self._resolve(entry, reference, "Site", f"/spec/siteRefs/{index}")
         if spec.get("connectivity", "multipoint") == "point-to-point":
@@ -423,6 +441,10 @@ class SemanticValidator:
         if network is None:
             return
         spec = network.data["spec"]
+        if spec.get("addressAllocation") == "provider-managed" and "addresses" in entry.data:
+            self._issue(entry, "provider_managed_addressing",
+                        "provider-managed addressAllocation requires attachment addresses to be omitted, even when empty",
+                        "/addresses")
         node = self.registry.entries[entry.parent]
         site = self.registry.node_site(node)
         resolved_site = self.registry.entries.get(site)
@@ -436,6 +458,10 @@ class SemanticValidator:
         prefixes = [ipaddress.ip_network(prefix) for prefix in spec.get("prefixes", [])]
         for index, value in enumerate(entry.data.get("addresses", [])):
             address = ipaddress.ip_address(value)
+            family = spec.get("addressFamily")
+            if family is not None and family != f"ipv{address.version}":
+                self._issue(entry, "network_address_family",
+                            f"attachment address must match Network addressFamily {family}", f"/addresses/{index}")
             if not any(address.version == prefix.version and address in prefix for prefix in prefixes):
                 self._issue(entry, "address_outside_prefix", f"{value} is not within any prefix of {network.id}", f"/addresses/{index}")
 

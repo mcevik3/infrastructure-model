@@ -1,0 +1,237 @@
+apiVersion: infra.model/v0alpha1
+kind: Site
+metadata:
+  name: west
+spec: {}
+---
+apiVersion: infra.model/v0alpha1
+kind: Site
+metadata:
+  name: metro
+spec: {}
+---
+apiVersion: infra.model/v0alpha1
+kind: Site
+metadata:
+  name: mountain
+spec: {}
+---
+apiVersion: infra.model/v0alpha1
+kind: Network
+metadata:
+  name: research-west
+spec:
+  layer: layer3
+  connectivity: multipoint
+  siteRefs:
+  - site/west
+  addressFamily: ipv4
+  addressAllocation: provider-managed
+  reachability: provider-internal
+---
+apiVersion: infra.model/v0alpha1
+kind: Network
+metadata:
+  name: research-metro
+spec:
+  layer: layer3
+  connectivity: multipoint
+  siteRefs:
+  - site/metro
+  addressFamily: ipv4
+  addressAllocation: provider-managed
+  reachability: provider-internal
+---
+apiVersion: infra.model/v0alpha1
+kind: Network
+metadata:
+  name: research-mountain
+spec:
+  layer: layer3
+  connectivity: multipoint
+  siteRefs:
+  - site/mountain
+  addressFamily: ipv4
+  addressAllocation: provider-managed
+  reachability: provider-internal
+---
+apiVersion: infra.model/v0alpha1
+kind: Server
+metadata:
+  name: west-host
+spec:
+  siteRef: site/west
+---
+apiVersion: infra.model/v0alpha1
+kind: Server
+metadata:
+  name: metro-host
+spec:
+  siteRef: site/metro
+---
+apiVersion: infra.model/v0alpha1
+kind: Server
+metadata:
+  name: mountain-host
+spec:
+  siteRef: site/mountain
+---
+apiVersion: infra.model/v0alpha1
+kind: Cluster
+metadata:
+  name: multi-site-research
+spec:
+  image:
+    name: Rocky Linux
+    version: '9'
+  nodes:
+  - name: lc-10
+    realization:
+      type: vm
+    requirements:
+      compute:
+        cpu:
+          count: 4
+          unit: vcpu
+      memory:
+        capacity:
+          value: 16
+          unit: GiB
+      storage:
+        capacity:
+          value: 10
+          unit: GiB
+    networkAttachments:
+    - name: dataplane
+      networkRef: network/research-west
+      interfaceRequirements:
+        type: ethernet
+    placement:
+      siteRef: site/west
+      hostRef: server/west-host
+  - name: lc-20
+    realization:
+      type: vm
+    requirements:
+      compute:
+        cpu:
+          count: 4
+          unit: vcpu
+      memory:
+        capacity:
+          value: 16
+          unit: GiB
+      storage:
+        capacity:
+          value: 10
+          unit: GiB
+    networkAttachments:
+    - name: dataplane
+      networkRef: network/research-metro
+      interfaceRequirements:
+        type: ethernet
+    placement:
+      siteRef: site/metro
+      hostRef: server/metro-host
+    image:
+      name: Ubuntu
+      version: '24'
+  - name: lc-30
+    realization:
+      type: vm
+    requirements:
+      compute:
+        cpu:
+          count: 4
+          unit: vcpu
+      memory:
+        capacity:
+          value: 16
+          unit: GiB
+      storage:
+        capacity:
+          value: 10
+          unit: GiB
+    networkAttachments:
+    - name: dataplane
+      networkRef: network/research-mountain
+      interfaceRequirements:
+        type: ethernet
+    placement:
+      siteRef: site/mountain
+      hostRef: server/mountain-host
+    image:
+      name: Debian
+      version: '12'
+  - name: lc-11
+    realization:
+      type: vm
+    requirements:
+      compute:
+        cpu:
+          count: 4
+          unit: vcpu
+      memory:
+        capacity:
+          value: 16
+          unit: GiB
+      storage:
+        capacity:
+          value: 10
+          unit: GiB
+    networkAttachments:
+    - name: dataplane
+      networkRef: network/research-west
+      interfaceRequirements:
+        type: ethernet
+    placement:
+      siteRef: site/west
+      hostRef: server/west-host
+  - name: lc-21
+    realization:
+      type: vm
+    requirements:
+      compute:
+        cpu:
+          count: 4
+          unit: vcpu
+      memory:
+        capacity:
+          value: 16
+          unit: GiB
+      storage:
+        capacity:
+          value: 10
+          unit: GiB
+    networkAttachments:
+    - name: dataplane
+      networkRef: network/research-metro
+      interfaceRequirements:
+        type: ethernet
+    placement:
+      siteRef: site/metro
+      hostRef: server/metro-host
+  - name: lc-31
+    realization:
+      type: vm
+    requirements:
+      compute:
+        cpu:
+          count: 4
+          unit: vcpu
+      memory:
+        capacity:
+          value: 16
+          unit: GiB
+      storage:
+        capacity:
+          value: 10
+          unit: GiB
+    networkAttachments:
+    - name: dataplane
+      networkRef: network/research-mountain
+      interfaceRequirements:
+        type: ethernet
+    placement:
+      siteRef: site/mountain
+      hostRef: server/mountain-host

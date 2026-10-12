@@ -296,7 +296,7 @@ def test_connectx5_fixture_changes_only_dedicated_provider_model(config):
 
 
 @pytest.mark.parametrize("override,reason", [
-    ({"connectivity": "point-to-point"}, "point-to-point"), ({"layer": "layer3"}, "layer2"),
+    ({"connectivity": "point-to-point"}, "point-to-point"), ({"layer": "layer3"}, "addressFamily"),
 ])
 def test_dedicated_identity_does_not_enable_layer3_or_incomplete_point_to_point(source, config, override, reason):
     next(doc for doc in source if doc["kind"] == "Network" and doc["metadata"]["name"] == "data")["spec"].update(override)

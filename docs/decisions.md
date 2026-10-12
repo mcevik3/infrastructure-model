@@ -1,6 +1,71 @@
 # v0alpha1 implementation decisions and review items
 
 This document records the targeted architecture-review corrections for v0alpha1.
+
+## FABNet Phase A: generic Layer-3 intent and offline internal services
+
+`Network.spec.addressFamily` (`ipv4`, `ipv6`), `addressAllocation`
+(`provider-managed`), and `reachability` (`provider-internal`, `public`) are
+optional provider-neutral requirements. Any authored field requires explicit
+`layer: layer3`; nothing infers or inserts that layer. Family selects no subnet.
+Provider-managed allocation delegates prefix and endpoint-address selection to
+the provider and deployment workflow, without promising automatic control-plane
+assignment of every VM address. Provider-internal requests the provider's routed
+infrastructure, without promising a private or isolated tenant network. Public
+requests external reachability without promising routing activation.
+
+Core validation checks family consistency against authored prefixes and attachment
+addresses. Provider-managed allocation requires explicit family and omission of
+prefixes and attachment addresses, including empty lists. Gateway/DNS semantics
+remain independent, including existing declared-prefix and duplicate checks.
+Partial Layer-3 intent and public reachability remain generic-valid. The generic
+model gains no provider service, endpoint-site/cardinality, NIC, VM, or per-node
+attachment restrictions. Scope, connectivity, placement, and adapterGroup retain
+their meanings. Normalized views preserve explicit fields and omit absent ones.
+`common.json` needs no change: the new fields belong only to Network.spec.
+
+A1 was validated before changing the adapter: 189 focused networking tests and
+953 generic-core tests passed. The existing generic dictionary/IR representation
+already preserves the new attributes; no additional public model types are needed.
+
+A2 resolves complete explicit Layer-3 + provider-managed + provider-internal
+intent to `IPv4` (FABNetv4) or `IPv6` (FABNetv6) according to addressFamily.
+Public/external FABNet (`IPv4Ext`, `IPv6Ext`) is deferred to Phase B with an explicit
+translation error. Names and prefixes do not select services. Existing L2Bridge,
+L2STS, and addressless ConnectX-6-only L2PTP selection remains unchanged.
+
+One selected Network realizes one service at exactly one distinct mapped endpoint
+site. Allowed `siteRefs` are not a service count. A multi-site Cluster uses separate
+independent Networks; no tunnels, routes, services, placement, or workers are
+synthesized. Selected Networks shared across Clusters fail completeness checks.
+Only NIC_Basic attachments qualify, with at most one FABNet attachment per VM;
+other eligible L2 attachments can coexist. Dedicated FABNet, DPU-backed and
+FPGA-backed attachments remain deferred, while allocation-only devices are unchanged.
+
+The immutable private Network plan adds `emit_empty_subnet`; the interface plan
+adds `emit_empty_address_families`. Both default false. FABNet plans hold no
+addresses and explicitly request `subnet: {}`, `ipv4: {}`, and `ipv6: {}`. The
+renderer mechanically emits these placeholders without changing existing L2
+bytes, grouping, or naming. Authored Network prefixes/gateways/DNS and attachment
+addresses are rejected by presence, even when empty; none is silently discarded.
+No runtime allocation model, public API, or FABlib/FIM dependency is introduced.
+
+In the reviewed downstream workflow, FABRIC supplies allocated prefix/gateway
+information and fabric-generic-cluster selects and configures guest addresses
+after submission. DHCP is not assumed; candidate generation is not reservation-aware,
+IPv6 address rediscovery may be imperfect, and persistent guest interface/routing
+configuration requires verification. Successful service creation does not prove
+guest connectivity. The first-matching-interface and persistent route limitations
+motivate the one-FABNet-attachment restriction. Compatibility is limited to the
+reviewed fabric-generic-cluster 1.0.20, FABlib 1.9.5, and fabric-fim 1.9.0 context.
+
+Three generic acceptance fixtures correspond to `_slice_topology_7-1.yml`,
+`_slice_topology_7-2.yml`, and `m5-v4.yml`, compared semantically with the actual
+read-only notebook files. The focused fixture config preserves explicit workers
+and historical images without changing the standard adapter configuration.
+No live operations, inventory preflight, scheduling, downstream changes, or
+external FABNet implementation are included. See [the adapter contract](fabric-adapter.md#internal-fabnet-phase-a).
+
 The schema API remains `v0alpha1`; the Python distribution remains `0.1.0a1`.
 These are separate version domains. The existing `infra.model` API namespace
 is provisional; this pass establishes no permanent organizational namespace.

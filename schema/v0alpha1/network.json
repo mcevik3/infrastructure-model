@@ -38,6 +38,26 @@
             "point-to-point"
           ]
         },
+        "addressFamily": {
+          "description": "Requested IP address family for an explicitly Layer-3 Network; does not select a subnet.",
+          "enum": [
+            "ipv4",
+            "ipv6"
+          ]
+        },
+        "addressAllocation": {
+          "description": "Delegates network-prefix and endpoint-address selection to the provider and deployment workflow; does not imply automatic guest address assignment.",
+          "enum": [
+            "provider-managed"
+          ]
+        },
+        "reachability": {
+          "description": "Requested routed reachability. Provider-internal means participation in provider internal routing, not tenant isolation. Public requests external reachability without implying routing activation or guest configuration.",
+          "enum": [
+            "provider-internal",
+            "public"
+          ]
+        },
         "prefixes": {
           "type": "array",
           "items": {

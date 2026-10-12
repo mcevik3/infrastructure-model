@@ -21,6 +21,8 @@ def _node(plan: _FabricNodePlan) -> dict:
         for interface_index, interface in enumerate(component.interfaces, 1):
             device, connection = _guest_interface_names(interface.attachment_ordinal)
             data = {"device": device, "connection": connection, "binding": interface.network_name}
+            if interface.emit_empty_address_families:
+                data.update(ipv4={}, ipv6={})
             for address in interface.addresses:
                 family = {"address": f"{address.address}/{address.prefix_length}"}
                 if address.gateway is not None:
@@ -46,6 +48,8 @@ def _render(plan: _FabricRenderPlan) -> dict:
     networks = {}
     for index, network in enumerate(plan.networks, 1):
         data = {"name": network.name, "type": network.service}
+        if network.emit_empty_subnet:
+            data["subnet"] = {}
         if network.prefixes:
             subnet = {}
             for prefix in network.prefixes:

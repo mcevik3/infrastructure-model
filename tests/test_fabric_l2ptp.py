@@ -279,9 +279,9 @@ def test_two_dedicated_endpoints_do_not_imply_l2ptp(source, config, connectivity
     assert networks(render(source, config))["net1"]["type"] == service
 
 
-def test_layer3_still_unsupported(source, config):
+def test_partial_layer3_still_unsupported(source, config):
     network(source)["spec"]["layer"] = "layer3"
-    with pytest.raises(FabricTranslationError, match="only explicit layer2"):
+    with pytest.raises(FabricTranslationError, match="requires explicit addressFamily"):
         render(source, config)
 
 

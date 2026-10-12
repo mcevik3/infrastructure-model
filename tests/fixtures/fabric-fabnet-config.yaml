@@ -1,0 +1,24 @@
+apiVersion: infra.model.fabric/v0alpha1
+kind: FabricAdapterConfig
+sites:
+  site/research-site: SRI
+  site/west: UCSD
+  site/metro: LOSA
+  site/mountain: SALT
+workers:
+  server/west-host: ucsd-w3.fabric-testbed.net
+  server/metro-host: losa-w1.fabric-testbed.net
+  server/mountain-host: salt-w1.fabric-testbed.net
+images:
+- name: Rocky Linux
+  version: '9'
+  fabricImage: default_rocky_9
+- name: Ubuntu
+  version: '22'
+  fabricImage: default_ubuntu_22
+- name: Ubuntu
+  version: '24'
+  fabricImage: default_ubuntu_24
+- name: Debian
+  version: '12'
+  fabricImage: default_debian_12

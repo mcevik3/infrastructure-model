@@ -276,7 +276,51 @@ distinct. The model does not enforce one cable per port or infer logical Network
 ## Logical networking and deployment intent
 
 **Network** has optional `spec.siteRefs`, `layer` (`layer2` or `layer3`),
-`connectivity`, `prefixes`, `defaultGateways`, and `dns`.
+`connectivity`, `addressFamily`, `addressAllocation`, `reachability`, `prefixes`,
+`defaultGateways`, and `dns`.
+
+The three optional Layer-3 intent fields require explicit `layer: layer3`:
+
+| Field | Values and meaning |
+| --- | --- |
+| `addressFamily` | `ipv4` or `ipv6`: requested IP family, without selecting a subnet. |
+| `addressAllocation` | `provider-managed`: delegates prefix and endpoint-address selection to the provider and deployment workflow. It does not imply that the control plane automatically assigns every guest address. |
+| `reachability` | `provider-internal`: participation in the provider's internal routed network, without implying private or isolated tenant networking. `public`: requests public/external reachability, without implying routing activation or guest routing configuration. |
+
+These are independent requirements. Partial intent such as only `addressFamily`
+is valid; adapters may need a complete combination to select a service. Address
+family, allocation, address scope, reachability, topology (`connectivity`), and
+placement scope (`siteRefs`) are distinct. No provider service identifiers occur
+in these generic enums, and no values are defaulted into the normalized model.
+
+An explicit family must match every authored Network prefix and attachment
+address. Omitting it preserves support for multiple families on one Network.
+`provider-managed` requires an explicit family and omission of `prefixes` and
+all referencing attachments' `addresses`, including explicitly empty lists.
+Gateway and DNS semantics remain independent: empty `defaultGateways` and
+mixed-family DNS remain valid. Nonempty gateways still require declared prefixes,
+so cannot satisfy the existing gateway rule with provider-managed allocation.
+Providers may reject gateway/DNS intent their target cannot honor.
+
+```yaml
+apiVersion: infra.model/v0alpha1
+kind: Network
+metadata:
+  name: research-network
+spec:
+  layer: layer3
+  connectivity: multipoint
+  siteRefs: [site/research-site]
+  addressFamily: ipv4
+  addressAllocation: provider-managed
+  reachability: provider-internal
+```
+
+The offline FABRIC adapter maps this complete combination to internal FABNet.
+Public intent remains generic-valid but external FABNet is deferred to Phase B.
+In the reviewed workflow, FABRIC supplies prefix/gateway information and
+fabric-generic-cluster selects and configures guest addresses after submission.
+See [FABRIC adapter restrictions and downstream caveats](fabric-adapter.md#internal-fabnet-phase-a).
 
 `siteRefs` is an allowed/declared site scope. When supplied it must contain at
 least one unique canonical Site reference, and every reference must resolve to
@@ -685,7 +729,7 @@ OpenStack control, network, storage, and compute responsibilities.
 | `pci.nvme` | `requirements.devices[type=storage, constraints.protocol=nvme]` |
 | `pci.network` / `NIC_Basic` | `networkAttachments[].interfaceRequirements`, ordinarily `{type: ethernet}` |
 | `binding` | `networkAttachments[].networkRef` |
-| Provider network service | Network `layer`, `connectivity`, effective endpoint sites, and resolved endpoint/interface capabilities inform future adapter selection |
+| Provider network service | Network `layer`, `connectivity`, Layer-3 intent, effective endpoint sites, and resolved endpoint/interface capabilities inform adapter selection |
 | OpenStack role booleans | Semantic roles such as `openstack.control`, `openstack.network`, `openstack.storage`, `openstack.compute` |
 | NetworkManager device/connection names | FABRIC renderer policy for historical guest configuration; no generic source fields |
 | Ansible-specific fields | Future Ansible adapter |
@@ -693,8 +737,8 @@ OpenStack control, network, storage, and compute responsibilities.
 | SELinux settings | OS configuration policy |
 
 These provider/tool-specific fields were deliberately removed from core intent,
-not accidentally lost. Future FABRIC network service resolution will consider
-`Network.layer`, `Network.connectivity`, effective endpoint sites, and resolved
+not accidentally lost. FABRIC network service resolution considers
+`Network.layer`, `Network.connectivity`, Layer-3 intent, effective endpoint sites, and resolved
 endpoint/interface capabilities, then choose an appropriate provider service.
 Layer alone does not determine the service, and the declared allowed site count
 does not establish actual endpoint placement. No provider service names, service
@@ -712,7 +756,7 @@ provider-specific component and port limits are documented in the adapter guide,
 not core semantics. One physical NIC/component can expose multiple interfaces;
 adapters must not assume `one networkAttachment == one FABRIC NIC component`.
 
-The offline adapter combines `Network.spec.prefixes`,
+For Layer-2 multipoint Networks, the offline adapter combines `Network.spec.prefixes`,
 `Network.spec.defaultGateways`, `Network.spec.dns`, and each attachment's
 `addresses` to render interface address/prefix, default gateway, and DNS servers.
 Shared Network configuration may then be expanded into provider-specific
@@ -845,7 +889,10 @@ carry stable codes such as `schema`, `duplicate_name`, `duplicate_component_name
 and `incompatible_resource`. Network configuration checks add
 `gateway_prefix_not_declared`, `gateway_address_family`,
 `duplicate_default_gateway`, and `duplicate_dns_server`; malformed inputs and
-identical DNS duplicates fail schema validation. A failed phase raises `ValidationError` and prevents
+identical DNS duplicates fail schema validation. Layer-3 intent adds
+`network_layer3_required`, `network_address_family_required`,
+`network_address_family`, and `provider_managed_addressing`.
+A failed phase raises `ValidationError` and prevents
 invalid data or an incomplete graph from being returned. A successful immutable
 `ValidationReport` includes document/entity counts and warning issues.
 

@@ -23,6 +23,7 @@ class _FabricNetworkPlan:
     prefixes: tuple[_FabricPrefixPlan, ...]
     default_gateways: tuple[_FabricGatewayPlan, ...] | None
     dns_servers: tuple[str, ...] | None
+    emit_empty_subnet: bool = False
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,7 @@ class _FabricInterfacePlan:
     network_name: str
     addresses: tuple[_FabricAddressPlan, ...]
     attachment_ordinal: int
+    emit_empty_address_families: bool = False
 
 
 @dataclass(frozen=True)
