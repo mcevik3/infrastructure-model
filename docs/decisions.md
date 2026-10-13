@@ -2,6 +2,37 @@
 
 This document records the targeted architecture-review corrections for v0alpha1.
 
+## FABNet dedicated interfaces and DPU association boundary
+
+User-verified FABRIC provisioning establishes FABNet capability for ConnectX-5,
+ConnectX-6, ConnectX-7-100, and ConnectX-7-400, without guest VLAN subinterfaces
+for those PCI-passthrough configurations. Switch-side 802.1Q encapsulation does
+not establish a guest VLAN requirement. Allocation, service binding, and guest
+configuration are separate operations.
+
+The adapter now accepts existing resolved `NIC_ConnectX_5` and `NIC_ConnectX_6`
+components for IPv4, IPv6, IPv4Ext, and IPv6Ext. It reuses component/interface
+realization and rendering, preserving adapterGroup semantics, two-port limits,
+deterministic names/order, one FABNet attachment per VM, and existing L2/L2PTP
+restrictions. Mixed FABNet/L2Bridge or FABNet/L2STS ports share a component when
+explicitly grouped. Provider-managed addressing remains empty in offline output.
+
+DPU networking stops at a generic-model gap: interface adapter selectors and
+adapterGroup cannot reference an independent `requirements.devices` allocation.
+The minimal missing semantics are an explicit requirement reference and instance
+selection for count-expanded requests (or individually named count-one requests).
+Matching group/name/model alone is insufficient, even with one candidate. No
+schema decision, implicit selection, duplicate allocation, or merging of requests
+is introduced. Existing DPU model mappings and allocation-only behavior remain.
+See the [model review](fabric-adapter.md#dpu-network-binding-model-review).
+
+Historical `m5-complex.yml` provides semantic evidence for dedicated mixed ports
+and explicit downstream `pci.dpu.dpu1.interfaces` ownership. Its FPGA entries do
+not prove complete guest configuration. FPGA interface allocation/binding is
+independent of bitstream loading and activation; a pre-activation link-down state
+alone is not a provisioning failure. This increment adds no FPGA bindings, IP
+assignment requirements, or downstream FPGA workflow changes.
+
 ## FABNet Phase B1: offline external services
 
 The adapter now resolves complete explicit Layer-3 + provider-managed + public

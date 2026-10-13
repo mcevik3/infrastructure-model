@@ -31,6 +31,9 @@ _DEVICE_MODELS = {
 }
 _DEVICE_VENDORS = {"gpu": {"NVIDIA"}, "fpga": {"AMD", "Xilinx"}, "storage": {"Intel"}, "dpu": {"NVIDIA"}}
 _DEDICATED_NIC_MODELS = {"ConnectX-5": "NIC_ConnectX_5", "ConnectX-6": "NIC_ConnectX_6"}
+# Verified FABNet component support; switch encapsulation does not require
+# guest VLAN subinterfaces for these PCI-passthrough NIC configurations.
+_FABNET_NIC_MODELS = {"NIC_Basic", "NIC_ConnectX_5", "NIC_ConnectX_6"}
 
 
 @dataclass(frozen=True)
@@ -130,9 +133,9 @@ def _fabnet(entry: Entry, endpoints: list[_EndpointRealization], selected_cluste
     if len(sites) != 1:
         _fail(entry, "/spec", f"FABNet requires exactly one distinct effective FABRIC endpoint site; found {len(sites)}")
     for endpoint in endpoints:
-        if endpoint.component.model != "NIC_Basic":
+        if endpoint.component.model not in _FABNET_NIC_MODELS:
             _fail(endpoint.attachment, "/interfaceRequirements",
-                  f"FABNet requires NIC_Basic; dedicated-NIC FABNet bindings are deferred; resolved {endpoint.component.model}")
+                  f"FABNet requires a supported NIC ({', '.join(sorted(_FABNET_NIC_MODELS))}); resolved {endpoint.component.model}")
         if "addresses" in endpoint.attachment.data:
             _fail(endpoint.attachment, "/addresses", "FABNet requires attachment addresses to be omitted, including empty lists")
     for field in ("prefixes", "defaultGateways", "dns"):

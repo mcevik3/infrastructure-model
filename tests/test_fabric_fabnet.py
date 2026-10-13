@@ -308,7 +308,7 @@ def test_unselected_network_is_ignored(source, config):
 
 @pytest.mark.parametrize("model", ["ConnectX-5", "ConnectX-6"])
 @pytest.mark.parametrize("grouped", [False, True, "inherited"])
-def test_dedicated_fabnet_fails(source, config, model, grouped):
+def test_dedicated_fabnet_reuses_component_realization(source, config, intent, model, grouped):
     a = node(source)["networkAttachments"][0]
     a["interfaceRequirements"]["adapter"] = {"class": "standard", "model": model}
     if grouped:
@@ -320,8 +320,17 @@ def test_dedicated_fabnet_fails(source, config, model, grouped):
             "interfaceRequirements": {"type": "ethernet", "adapter": selector}})
         source.append({"apiVersion": "infra.model/v0alpha1", "kind": "Network",
                        "metadata": {"name": "management"}, "spec": {"layer": "layer2"}})
-    assert_failure(source, config, f"requires NIC_Basic.*resolved NIC_{model.replace('-', '_')}",
-                   "/spec/nodes/0/networkAttachments/0/interfaceRequirements")
+    before = deepcopy(source)
+    result = render(source, config)
+    expected_interfaces = {"iface1": {
+        "device": "eth1", "connection": "conn-eth1", "binding": "research-network", "ipv4": {}, "ipv6": {}}}
+    if grouped == "inherited":
+        expected_interfaces["iface2"] = {"device": "eth2", "connection": "conn-eth2", "binding": "management"}
+    assert nodes(result)["node1"]["pci"]["network"] == {"nic1": {
+        "name": "nic1", "model": f"NIC_{model.replace('-', '_')}", "interfaces": expected_interfaces}}
+    assert networks(result)["net1"] == {"name": "research-network", "type": intent[2], "subnet": {}}
+    assert nodes(result)["node2"]["pci"]["network"]["nic1"]["model"] == "NIC_Basic"
+    assert source == before
 
 
 @pytest.mark.parametrize("different_network", [False, True])

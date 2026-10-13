@@ -16,6 +16,8 @@ Independent DPU requests now support allocation only, without DPU interfaces.
 Phase A adds internal IPv4/IPv6 FABNet from explicit provider-neutral Layer-3 intent.
 Phase B1 adds external IPv4/IPv6 FABNet for explicit `reachability: public`,
 preserving internal service selection and the same site-local restrictions.
+FABNet also supports resolved ConnectX-5/ConnectX-6 interfaces, including one
+FABNet port and one L2Bridge/L2STS port on the same dedicated component.
 
 The adapter either represents supported intent faithfully or raises
 `FabricTranslationError`. It never rounds capacities, guesses placement/images,
@@ -254,6 +256,14 @@ FPGA rendering allocates the component only; it omits the optional downstream
 `interfaces` field. No PCI device request is converted into a network attachment
 or changes network-service resolution.
 
+FPGA interface allocation and binding to NetworkServices are separate from
+bitstream loading and hardware activation. A link-down state before activation
+is not by itself a provisioning failure. FPGA network bindings are outside this
+adapter feature; they do not inherently require IP assignment. No FPGA attachment
+IP requirements or downstream bitstream, activation, or guest configuration
+workflows are added. The FPGA bindings in historical `m5-complex.yml` illustrate
+topology intent, not complete FPGA guest configuration support.
+
 ### Reviewed downstream compatibility context
 
 This device contract follows the supplied read-only review of
@@ -342,8 +352,37 @@ by fabric-generic-cluster. Project permissions, inventory, site availability,
 host selection, scheduling, and submission remain runtime concerns, with no
 offline checks. Earlier manual acceptance does not establish DPU provisioning.
 
-Future design: an explicit node-local relationship between a requested DPU device
-instance and NetworkAttachments/adapterGroup if unified DPU networking is desired.
+### DPU network-binding model review
+
+The generic `NetworkAttachment` has `networkRef`, `adapterGroup`, and
+`interfaceRequirements` (type, speed/features, and adapter class/vendor/model).
+None references a `DeviceRequirement`. Each `requirements.devices` entry has a
+canonical ID `cluster/<cluster>/node/<node>/requirement/device/<name>` and an
+optional `count`. As documented in the [generic model](model-v0alpha1.md#node-local-network-adapter-grouping),
+grouping relates attachments only; it creates no relationship to a device request.
+Equal group/requirement names or matching model selectors establish no association,
+even if only one DPU is requested.
+
+Allocation currently walks `requirements.devices` in authored order, expands each
+count in place, and assigns `dpu1`, `dpu2`, etc. using a node-local DPU counter.
+The private device plan retains only the generated name/model. There is **no path
+by which an attachment resolves to one of these allocated DPU components**.
+
+The smallest provider-neutral gap is an explicit attachment-to-device-requirement
+reference, with unambiguous instance selection when `count > 1` (or a rule that
+only individually named, count-one requirements may be referenced). Field names,
+instance identity, and compatibility rules for references and adapter groups
+need a generic-model decision. Provider `dpuN` names must not become generic
+references. No new schema, implicit DPU selection, additional DPU allocation, or
+merging of independent requirements is introduced here.
+
+User provisioning confirms FABNet capability for `NIC_ConnectX_7_100` and
+`NIC_ConnectX_7_400`; that provider capability does not resolve this modeling gap.
+DPU interface realization is stopped pending the explicit relationship. Existing
+allocation-only DPU behavior, including multiple independent requests and count
+expansion, is preserved. In historical `m5-complex.yml`, `node1.pci.dpu.dpu1`
+explicitly owns both `iface1` (FABNet `l3-1`) and `iface2` (L2STS `l2-1`); the
+downstream nesting supplies an association that the generic source cannot yet express.
 
 ## Dedicated ConnectX-5, ConnectX-6, and adapter groups
 
@@ -419,7 +458,9 @@ One networkAttachment must not be assumed universally to equal one physical
 NIC/component. Grouping changes component realization only; logical endpoint
 counts, network bindings, addresses, prefixes, gateways, and DNS remain independent
 for each attachment. Dedicated interfaces use the same network-service resolver
-as ordinary Ethernet for multipoint L2Bridge/L2STS. L2PTP remains restricted to
+as ordinary Ethernet for multipoint L2Bridge/L2STS and all four FABNet services.
+A group may bind port 1 to FABNet and port 2 to L2Bridge or L2STS, or reverse that
+order. Each VM still permits only one FABNet attachment. L2PTP remains restricted to
 resolved `NIC_ConnectX_6` interfaces; ConnectX-5 does not qualify.
 
 Component numbers follow first creation across both dedicated models and
@@ -451,10 +492,10 @@ selected Cluster's endpoints, even when other Clusters use the same Network.
 | Layer2 multipoint with more than two effective endpoint sites | Translation error |
 | Explicit layer2, point-to-point, exactly two complete dedicated endpoints at exactly two effective FABRIC sites, no L3 configuration | `L2PTP` |
 | Other point-to-point combinations | Translation error; no downgrade to a multipoint service |
-| Layer3, IPv4, provider-managed, provider-internal, multipoint, one mapped endpoint site, NIC_Basic | `IPv4` (FABNetv4) |
-| Layer3, IPv6, provider-managed, provider-internal, multipoint, one mapped endpoint site, NIC_Basic | `IPv6` (FABNetv6) |
-| Layer3, IPv4, provider-managed, public, multipoint, one mapped endpoint site, NIC_Basic | `IPv4Ext` (FABNetv4Ext) |
-| Layer3, IPv6, provider-managed, public, multipoint, one mapped endpoint site, NIC_Basic | `IPv6Ext` (FABNetv6Ext) |
+| Layer3, IPv4, provider-managed, provider-internal, multipoint, one mapped endpoint site, supported FABNet NIC | `IPv4` (FABNetv4) |
+| Layer3, IPv6, provider-managed, provider-internal, multipoint, one mapped endpoint site, supported FABNet NIC | `IPv6` (FABNetv6) |
+| Layer3, IPv4, provider-managed, public, multipoint, one mapped endpoint site, supported FABNet NIC | `IPv4Ext` (FABNetv4Ext) |
+| Layer3, IPv6, provider-managed, public, multipoint, one mapped endpoint site, supported FABNet NIC | `IPv6Ext` (FABNetv6Ext) |
 | Partial/unsupported Layer3 intent or unspecified layer | Translation error |
 
 `Network.siteRefs` declares allowed scope, already enforced by core validation.
@@ -499,8 +540,8 @@ addressing remains valid in core.
 The Network output contains `name` and `type: L2PTP`, with no `subnet`. Endpoint
 interfaces retain normal `device`, `connection`, and Network-name `binding`
 fields, without IP blocks or VLAN configuration. No VLAN ID is invented.
-Future design: model/render guest VLAN subinterfaces for tagged L2PTP traffic
-before supporting static IP configuration. Offline eligibility does not prove
+Guest IP configuration remains outside this L2PTP increment. Switch-side tagging
+alone does not establish a guest VLAN requirement. Offline eligibility does not prove
 availability, provisioning, or runtime network correctness.
 
 ### Layer-2 multipoint addressing
@@ -557,12 +598,13 @@ Cluster can declare independent site-local Networks; three Networks at UCSD,
 LOSA, and SALT produce three independent services, without synthesized inter-site
 tunnels, routes, or Networks. There is no exactly-two-endpoint requirement.
 
-The initial adapter restrictions apply to all four services:
+The following adapter restrictions apply to all four services:
 
-- Every FABNet attachment must resolve to `NIC_Basic` through existing ordinary
-  Ethernet requirements. Dedicated ConnectX-5/ConnectX-6 FABNet bindings, DPU
-  interfaces, and FPGA interfaces remain unsupported. Existing L2 component
-  resolution and allocation-only devices are unchanged.
+- Every FABNet attachment must resolve to `NIC_Basic`, `NIC_ConnectX_5`, or
+  `NIC_ConnectX_6` through the existing component resolver. Dedicated NICs retain
+  adapterGroup sharing, two-port limits, and deterministic component/interface
+  naming. DPU bindings await the explicit generic relationship described above;
+  FPGA bindings remain outside this feature. Allocation-only devices are unchanged.
 - At most one FABNet attachment per VM, including repeated attachments to the
   same Network. Other eligible L2 attachments may coexist. This reflects the
   reviewed workflow's first-matching-interface selection and persistent route
@@ -575,6 +617,32 @@ The initial adapter restrictions apply to all four services:
   Core rejects prefixes/addresses with provider-managed allocation; the adapter
   additionally rejects gateway/DNS information the target cannot honor. Core
   gateway consistency rules still apply before translation.
+
+User-verified provisioning confirms ConnectX-5/ConnectX-6 FABNet support with no
+guest-side VLAN subinterfaces for these PCI-passthrough configurations. Switch-side
+802.1Q encapsulation must not be interpreted as a guest VLAN requirement. This
+adapter emits no VLAN configuration. FABRIC component allocation, NetworkService
+binding, and guest interface/address configuration remain separate operations.
+
+The [dedicated FABNet fixture](../tests/fixtures/fabric-fabnet-dedicated-nic.yaml)
+and its [generated YAML](../tests/fixtures/fabric-fabnet-dedicated-nic-rendered.yaml)
+preserve the dedicated component, interface, addressing, and service semantics of
+nodes 3/4 in historical `m5-complex.yml`: ConnectX-6 with IPv4Ext/L2STS and
+ConnectX-5 with IPv6Ext/L2STS. Generic sites intentionally use the existing
+`site-a`/`site-b` mappings (SRI/UKY), rather than the reference's PSC/GATECH.
+The semantic test uses `FABRIC_COMPLEX_MODEL`, defaulting to
+`~/Downloads/m5-complex.yml`; only that comparison skips when the file is absent.
+The fixture and CLI byte comparison are self-contained.
+
+```sh
+infra-model render fabric tests/fixtures/fabric-fabnet-dedicated-nic.yaml \
+  --config adapter-configs/fabric.yaml
+```
+
+All four service combinations are tested with both dedicated models. Their FABNet
+interfaces use `ipv4: {}` and `ipv6: {}`, and the service uses `subnet: {}`;
+no address, prefix, gateway, or DNS value is fabricated. The neighboring L2 port
+retains only its explicitly authored addressing.
 
 The internal target retains these placeholders (IPv6 uses `type: IPv6`):
 

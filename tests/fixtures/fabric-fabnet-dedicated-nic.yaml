@@ -1,0 +1,134 @@
+apiVersion: infra.model/v0alpha1
+kind: Site
+metadata:
+  name: site-a
+spec: {}
+---
+apiVersion: infra.model/v0alpha1
+kind: Site
+metadata:
+  name: site-b
+spec: {}
+---
+apiVersion: infra.model/v0alpha1
+kind: Network
+metadata:
+  name: l3-3
+spec:
+  layer: layer3
+  addressFamily: ipv4
+  addressAllocation: provider-managed
+  reachability: public
+  siteRefs:
+  - site/site-a
+---
+apiVersion: infra.model/v0alpha1
+kind: Network
+metadata:
+  name: l3-4
+spec:
+  layer: layer3
+  addressFamily: ipv6
+  addressAllocation: provider-managed
+  reachability: public
+  siteRefs:
+  - site/site-b
+---
+apiVersion: infra.model/v0alpha1
+kind: Network
+metadata:
+  name: l2-2
+spec:
+  layer: layer2
+  prefixes:
+  - 192.168.202.0/24
+  - 2001:db8:1234:2::/64
+  defaultGateways:
+  - prefix: 192.168.202.0/24
+    address: 192.168.202.1
+  - prefix: 2001:db8:1234:2::/64
+    address: 2001:db8:1234:2::1
+  dns:
+    servers:
+    - 8.8.8.8
+    - 2001:db8:1::53
+---
+apiVersion: infra.model/v0alpha1
+kind: Cluster
+metadata:
+  name: dedicated-fabnet
+spec:
+  image:
+    name: Rocky Linux
+    version: '9'
+  nodes:
+  - name: lc-3
+    realization:
+      type: vm
+    placement:
+      siteRef: site/site-a
+    requirements:
+      compute:
+        cpu:
+          count: 4
+          unit: vcpu
+      memory:
+        capacity:
+          value: 16
+          unit: GiB
+      storage:
+        capacity:
+          value: 10
+          unit: GiB
+    networkAttachments:
+    - name: fabnet
+      networkRef: network/l3-3
+      adapterGroup: ports
+      interfaceRequirements:
+        type: ethernet
+        adapter:
+          class: standard
+          model: ConnectX-6
+    - name: storage
+      networkRef: network/l2-2
+      adapterGroup: ports
+      interfaceRequirements:
+        type: ethernet
+      addresses:
+      - 192.168.202.203
+      - 2001:db8:1234:2::203
+  - name: lc-4
+    realization:
+      type: vm
+    placement:
+      siteRef: site/site-b
+    requirements:
+      compute:
+        cpu:
+          count: 4
+          unit: vcpu
+      memory:
+        capacity:
+          value: 16
+          unit: GiB
+      storage:
+        capacity:
+          value: 10
+          unit: GiB
+    networkAttachments:
+    - name: fabnet
+      networkRef: network/l3-4
+      adapterGroup: ports
+      interfaceRequirements:
+        type: ethernet
+        adapter:
+          class: standard
+          model: ConnectX-5
+    - name: storage
+      networkRef: network/l2-2
+      adapterGroup: ports
+      interfaceRequirements:
+        type: ethernet
+      addresses:
+      - 192.168.202.204
+      - 2001:db8:1234:2::204

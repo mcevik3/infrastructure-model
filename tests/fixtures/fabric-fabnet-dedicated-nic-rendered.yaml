@@ -1,0 +1,116 @@
+site_topology_nodes:
+  nodes:
+    node1:
+      name: lc-3
+      hostname: lc-3
+      site: SRI
+      worker: ''
+      capacity:
+        cpu: 4
+        ram: 16
+        disk: 10
+        os: default_rocky_9
+      pci:
+        dpu: {}
+        fpga: {}
+        gpu: {}
+        nvme: {}
+        network:
+          nic1:
+            name: nic1
+            model: NIC_ConnectX_6
+            interfaces:
+              iface1:
+                device: eth1
+                connection: conn-eth1
+                binding: l3-3
+                ipv4: {}
+                ipv6: {}
+              iface2:
+                device: eth2
+                connection: conn-eth2
+                binding: l2-2
+                ipv4:
+                  address: 192.168.202.203/24
+                  gateway: 192.168.202.1
+                  dns: 8.8.8.8
+                ipv6:
+                  address: 2001:db8:1234:2::203/64
+                  gateway: 2001:db8:1234:2::1
+                  dns: 2001:db8:1::53
+      persistent_storage:
+        volume: {}
+      specific:
+        openstack:
+          control: 'false'
+          network: 'false'
+          compute: 'false'
+          storage: 'false'
+    node2:
+      name: lc-4
+      hostname: lc-4
+      site: UKY
+      worker: ''
+      capacity:
+        cpu: 4
+        ram: 16
+        disk: 10
+        os: default_rocky_9
+      pci:
+        dpu: {}
+        fpga: {}
+        gpu: {}
+        nvme: {}
+        network:
+          nic1:
+            name: nic1
+            model: NIC_ConnectX_5
+            interfaces:
+              iface1:
+                device: eth1
+                connection: conn-eth1
+                binding: l3-4
+                ipv4: {}
+                ipv6: {}
+              iface2:
+                device: eth2
+                connection: conn-eth2
+                binding: l2-2
+                ipv4:
+                  address: 192.168.202.204/24
+                  gateway: 192.168.202.1
+                  dns: 8.8.8.8
+                ipv6:
+                  address: 2001:db8:1234:2::204/64
+                  gateway: 2001:db8:1234:2::1
+                  dns: 2001:db8:1::53
+      persistent_storage:
+        volume: {}
+      specific:
+        openstack:
+          control: 'false'
+          network: 'false'
+          compute: 'false'
+          storage: 'false'
+site_topology_networks:
+  networks:
+    net1:
+      name: l3-3
+      type: IPv4Ext
+      subnet: {}
+    net2:
+      name: l2-2
+      type: L2STS
+      subnet:
+        ipv4:
+          address: 192.168.202.0/24
+          gateway: 192.168.202.1
+        ipv6:
+          address: 2001:db8:1234:2::/64
+          gateway: 2001:db8:1234:2::1
+    net3:
+      name: l3-4
+      type: IPv6Ext
+      subnet: {}
+site_topology_facility_ports:
+  facility_ports: {}
