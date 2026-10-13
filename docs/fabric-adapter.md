@@ -14,6 +14,8 @@ topology for two dedicated endpoints at two sites. PCI device realization adds
 exact supported GPU, FPGA, and NVMe models with generic count expansion.
 Independent DPU requests now support allocation only, without DPU interfaces.
 Phase A adds internal IPv4/IPv6 FABNet from explicit provider-neutral Layer-3 intent.
+Phase B1 adds external IPv4/IPv6 FABNet for explicit `reachability: public`,
+preserving internal service selection and the same site-local restrictions.
 
 The adapter either represents supported intent faithfully or raises
 `FabricTranslationError`. It never rounds capacities, guesses placement/images,
@@ -451,8 +453,9 @@ selected Cluster's endpoints, even when other Clusters use the same Network.
 | Other point-to-point combinations | Translation error; no downgrade to a multipoint service |
 | Layer3, IPv4, provider-managed, provider-internal, multipoint, one mapped endpoint site, NIC_Basic | `IPv4` (FABNetv4) |
 | Layer3, IPv6, provider-managed, provider-internal, multipoint, one mapped endpoint site, NIC_Basic | `IPv6` (FABNetv6) |
+| Layer3, IPv4, provider-managed, public, multipoint, one mapped endpoint site, NIC_Basic | `IPv4Ext` (FABNetv4Ext) |
+| Layer3, IPv6, provider-managed, public, multipoint, one mapped endpoint site, NIC_Basic | `IPv6Ext` (FABNetv6Ext) |
 | Partial/unsupported Layer3 intent or unspecified layer | Translation error |
-| Public reachability | Translation error: external FABNet deferred to Phase B |
 
 `Network.siteRefs` declares allowed scope, already enforced by core validation.
 Its length is never the service-selection site count. Unused allowed sites have
@@ -517,7 +520,7 @@ is applied only to explicitly addressed interface families; addressless interfac
 have no family blocks. The private Network plan retains omitted/empty configuration
 even where the historical output cannot distinguish the two.
 
-## Internal FABNet Phase A
+## Internal and external FABNet
 
 Service selection requires all four explicit properties:
 
@@ -525,16 +528,25 @@ Service selection requires all four explicit properties:
 layer: layer3
 addressFamily: ipv4 # or ipv6
 addressAllocation: provider-managed
-reachability: provider-internal
+reachability: provider-internal # or public
 ```
 
-`ipv4` maps exactly to historical target `IPv4` (FABNetv4); `ipv6` maps exactly
-to `IPv6` (FABNetv6). `connectivity` must be `multipoint` or omitted with its
-existing multipoint meaning. Network names and prefixes never select a service.
+Service selection uses the explicit family and reachability together:
+
+| `addressFamily` | `reachability` | Historical target type |
+| --- | --- | --- |
+| `ipv4` | `provider-internal` | `IPv4` (FABNetv4) |
+| `ipv6` | `provider-internal` | `IPv6` (FABNetv6) |
+| `ipv4` | `public` | `IPv4Ext` (FABNetv4Ext) |
+| `ipv6` | `public` | `IPv6Ext` (FABNetv6Ext) |
+
+The internal Phase A mappings remain unchanged. Phase B1 uses existing generic
+public intent; no FABRIC service names enter the generic schema. `connectivity`
+must be `multipoint` or omitted with its existing multipoint meaning. Network
+names and address formats never select a service or imply public reachability.
 Partial Layer-3 requirements remain generic-valid but fail translation when they
-cannot unambiguously select a service. `reachability: public` is also generic-valid;
-the adapter explicitly rejects it because `IPv4Ext`/`IPv6Ext` (external FABNet)
-are deferred to Phase B. No public intent is converted to internal intent.
+cannot unambiguously select a service. Missing properties are not inferred, and
+unsupported combinations never fall back to another service.
 
 Each selected generic Network becomes one site-local NetworkService. All of its
 endpoints must occupy exactly one distinct **mapped** FABRIC site, using existing
@@ -545,7 +557,7 @@ Cluster can declare independent site-local Networks; three Networks at UCSD,
 LOSA, and SALT produce three independent services, without synthesized inter-site
 tunnels, routes, or Networks. There is no exactly-two-endpoint requirement.
 
-The initial adapter restrictions are:
+The initial adapter restrictions apply to all four services:
 
 - Every FABNet attachment must resolve to `NIC_Basic` through existing ordinary
   Ethernet requirements. Dedicated ConnectX-5/ConnectX-6 FABNet bindings, DPU
@@ -564,7 +576,7 @@ The initial adapter restrictions are:
   additionally rejects gateway/DNS information the target cannot honor. Core
   gateway consistency rules still apply before translation.
 
-The target explicitly contains these placeholders (IPv6 uses `type: IPv6`):
+The internal target retains these placeholders (IPv6 uses `type: IPv6`):
 
 ```yaml
 site_topology_networks:
@@ -574,6 +586,29 @@ site_topology_networks:
       type: IPv4
       subnet: {}
 ```
+
+The external fixtures produce the following respective Network entries:
+
+```yaml
+site_topology_networks:
+  networks:
+    net1:
+      name: research-public-v4
+      type: IPv4Ext
+      subnet: {}
+```
+
+```yaml
+site_topology_networks:
+  networks:
+    net1:
+      name: research-public-v6
+      type: IPv6Ext
+      subnet: {}
+```
+
+All FABNet interfaces retain both empty family blocks. The binding always follows
+the generic Network name (`research-network` in this internal example):
 
 ```yaml
 pci:
@@ -594,7 +629,9 @@ Both empty family blocks are historical format placeholders. They do not request
 DHCP, a zero-valued static address, or an addressless runtime interface, and do not
 report allocation during rendering. No concrete subnet, interface address, gateway,
 DNS server, or route is generated. Existing `netN`, `nicN`, `ifaceN`, `ethN`, and
-`conn-ethN` ordering is preserved; unchanged L2 output remains byte-identical.
+`conn-ethN` ordering is preserved; existing L2 and internal FABNet output remain
+byte-identical. The Phase A private plan and renderer handle all four service
+strings without modification.
 
 Provider-managed allocation delegates prefix/address selection to the provider
 and deployment workflow. In the reviewed FABRIC workflow, FABRIC supplies the
@@ -602,6 +639,31 @@ allocated prefix and gateway information; fabric-generic-cluster selects and
 configures guest addresses. Runtime discovery, address selection, guest interface
 and routing configuration happen **after slice submission**, outside this adapter.
 DHCP, DHCPv6, and SLAAC configuration are not assumed or implemented here.
+
+### External public routing and runtime boundary
+
+The offline adapter stops at historical topology YAML. Rendering an Ext service
+does not activate public routing or promise public Internet connectivity. The
+reviewed notebook separates the downstream operations:
+
+1. Step 7.1: `deploy_topology_to_fabric()` creates/submits the topology.
+2. Step 7.2: `configure_l3_networks()` handles runtime Layer-3 addressing.
+3. Step 7.3: `enable_public_routing()` activates external public routing.
+4. Step 7.4: `configure_node_interfaces()` configures guest interfaces.
+
+For external services, Step 7.3 calls `make_ip_publicly_routable()` for the
+selected addresses and submits a slice modification with `slice.submit()`.
+Successful NetworkService creation alone does not prove public-routing activation.
+FABRIC project/account entitlements may be required for external public routing;
+the adapter neither requests authorization nor verifies permissions.
+
+Even successful public-routing activation does not establish correct guest
+default routes, source-based routing policies, or end-to-end Internet access.
+Guest routing configuration and connectivity verification are separate downstream
+responsibilities. This adapter does not authenticate, call FABRIC, submit slices,
+allocate addresses, configure guest interfaces/routes, choose default routes,
+modify source-based routing, or verify Internet reachability. It performs no
+inventory-aware preflight, scheduling, or automatic worker selection.
 
 Known downstream caveats: address candidate generation is not reservation-aware;
 IPv6 address rediscovery may be imperfect; persistent guest configuration and
@@ -611,11 +673,14 @@ Compatibility context is the reviewed fabric-generic-cluster **1.0.20**,
 FABlib **1.9.5**, and fabric-fim **1.9.0**, not a universal compatibility claim.
 
 Acceptance fixtures are [IPv4](../tests/fixtures/fabric-fabnet-ipv4.yaml),
-[IPv6](../tests/fixtures/fabric-fabnet-ipv6.yaml), and
+[IPv6](../tests/fixtures/fabric-fabnet-ipv6.yaml),
+[IPv4Ext](../tests/fixtures/fabric-fabnet-ipv4ext.yaml),
+[IPv6Ext](../tests/fixtures/fabric-fabnet-ipv6ext.yaml), and
 [three-site IPv4](../tests/fixtures/fabric-fabnet-multisite.yaml), with a
 [focused config](../tests/fixtures/fabric-fabnet-config.yaml). They preserve the
 service, placement, workers, capacities, images, NICs, bindings, and empty-block
-semantics of `_slice_topology_7-1.yml`, `_slice_topology_7-2.yml`, and `m5-v4.yml`.
+semantics of `_slice_topology_7-1.yml`, `_slice_topology_7-2.yml`,
+`_slice_topology_7-3.yml`, `_slice_topology_7-4.yml`, and `m5-v4.yml`, respectively.
 The historical comparison tests use the read-only sibling notebooks checkout or
 `FABRIC_NOTEBOOK_MODELS`; they skip only those comparisons if it is unavailable.
 Ordinary fixture assertions and CLI determinism tests run without reference repos.
@@ -640,8 +705,9 @@ and `persistent_storage: {volume: {}}`. Unrequested GPU/FPGA/NVMe/DPU
 families remain empty dictionaries. All four OpenStack flags are string
 `'true'`/`'false'` values for the supported `openstack.control`, `.network`,
 `.compute`, and `.storage` roles. No Ansible, postboot, SELinux, or generated
-topology header is emitted. Networks without prefixes omit `subnet`; interfaces
-without addresses omit IP-family blocks.
+topology header is emitted. L2 Networks without prefixes omit `subnet`; L2
+interfaces without addresses omit IP-family blocks. FABNet explicitly emits the
+empty placeholders described above.
 
 ```sh
 infra-model render fabric examples/fabric-like/ \
@@ -691,7 +757,7 @@ DPU allocations. It renders `dpu1` and `dpu2` without DPU interfaces or live
 hardware requirements, and stays outside recursive examples.
 
 Live FABRIC operations, facility ports, L2PTP guest VLAN/IP configuration, other dedicated NIC models, DPU interface/unsupported device rendering,
-external FABNet, runtime address allocation, DHCP, Ansible, postboot, SELinux,
+public-routing activation, runtime address allocation, DHCP, Ansible, postboot, SELinux,
 and filesystem/mount rendering remain outside this increment.
 
 ## Manual downstream acceptance

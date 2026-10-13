@@ -1,5 +1,6 @@
 from collections import Counter
 from copy import deepcopy
+import hashlib
 import os
 from pathlib import Path
 import subprocess
@@ -21,7 +22,13 @@ FIXTURES = ROOT / "tests/fixtures"
 CONFIG = FIXTURES / "fabric-fabnet-config.yaml"
 ACCEPTANCE = [("ipv4", "_slice_topology_7-1.yml", "IPv4", 2, 1),
               ("ipv6", "_slice_topology_7-2.yml", "IPv6", 2, 1),
+              ("ipv4ext", "_slice_topology_7-3.yml", "IPv4Ext", 2, 1),
+              ("ipv6ext", "_slice_topology_7-4.yml", "IPv6Ext", 2, 1),
               ("multisite", "m5-v4.yml", "IPv4", 6, 3)]
+SERVICE_INTENTS = [("ipv4", "provider-internal", "IPv4"),
+                   ("ipv6", "provider-internal", "IPv6"),
+                   ("ipv4", "public", "IPv4Ext"),
+                   ("ipv6", "public", "IPv6Ext")]
 
 
 @pytest.fixture
@@ -34,9 +41,17 @@ def config():
     return FabricAdapterConfig.from_file(CONFIG)
 
 
+@pytest.fixture(params=SERVICE_INTENTS, ids=[service for _, _, service in SERVICE_INTENTS])
+def intent(request):
+    return request.param
+
+
 @pytest.fixture
-def source():
-    return [doc.data for doc in load_documents(FIXTURES / "fabric-fabnet-ipv4.yaml")]
+def source(intent):
+    documents = [doc.data for doc in load_documents(FIXTURES / "fabric-fabnet-ipv4.yaml")]
+    family, reachability, _ = intent
+    network(documents)["spec"].update(addressFamily=family, reachability=reachability)
+    return documents
 
 
 def add_site(source, name="other"):
@@ -126,29 +141,47 @@ def test_acceptance_cli_twice(fixture, historical, service, node_count, network_
     assert first.returncode == second.returncode == 0, (first.stderr, second.stderr)
     assert first.stdout == second.stdout
     assert b"UNKNOWN" not in first.stdout
-    assert len(nodes(yaml.safe_load(first.stdout))) == node_count
+    document = yaml.safe_load(first.stdout)
+    assert len(nodes(document)) == node_count
+    assert len(networks(document)) == network_count
+    assert {n["type"] for n in networks(document).values()} == {service}
 
 
-@pytest.mark.parametrize("family,service", [("ipv4", "IPv4"), ("ipv6", "IPv6")])
+# CLI hashes captured on Phase A before adding external FABNet support.
+@pytest.mark.parametrize("fixture,digest", [
+    ("ipv4", "29728520d1afef152b7a5ee0de6681ede1199563f4f86708ccfb49ec398c8da5"),
+    ("ipv6", "42a3b47782b623b69603d41fede9621913675f973dad7eef71aa1a6469a3cc56"),
+    ("multisite", "eb5ce40cdc5f1b5737debeaf7335df5c41d394b7043452be0c8b119116bda358"),
+])
+def test_internal_fabnet_render_bytes_remain_unchanged(fixture, digest, capsys):
+    outputs = []
+    for _ in range(2):
+        assert main(["render", "fabric", str(FIXTURES / f"fabric-fabnet-{fixture}.yaml"),
+                     "--config", str(CONFIG)]) == 0
+        outputs.append(capsys.readouterr().out.encode("utf-8"))
+    assert outputs[0] == outputs[1]
+    assert hashlib.sha256(outputs[0]).hexdigest() == digest
+
+
 @pytest.mark.parametrize("count", [1, 3])
-def test_no_exactly_two_endpoint_requirement(source, config, family, service, count):
-    network(source)["spec"]["addressFamily"] = family
+def test_no_exactly_two_endpoint_requirement(source, config, intent, count):
     original = deepcopy(node(source))
     cluster(source)["spec"]["nodes"] = [{**deepcopy(original), "name": f"vm-{i}"} for i in range(count)]
     result = render(source, config)
     assert len(nodes(result)) == count
-    assert networks(result)["net1"]["type"] == service
+    assert networks(result)["net1"]["type"] == intent[2]
 
 
-def test_omitted_connectivity_and_renaming_do_not_select_service(source, config):
+@pytest.mark.parametrize("name", ["misleading-ipv6-public-name", "misleading-ipv4-internal-name"])
+def test_omitted_connectivity_and_renaming_do_not_select_service(source, config, intent, name):
     network(source)["spec"].pop("connectivity")
-    network(source)["metadata"]["name"] = "misleading-ipv6-public-name"
+    network(source)["metadata"]["name"] = name
     for n in cluster(source)["spec"]["nodes"]:
-        n["networkAttachments"][0]["networkRef"] = "network/misleading-ipv6-public-name"
+        n["networkAttachments"][0]["networkRef"] = f"network/{name}"
     before = deepcopy(source)
     result = render(source, config)
-    assert networks(result) == {"net1": {"name": "misleading-ipv6-public-name", "type": "IPv4", "subnet": {}}}
-    assert interface(result)["binding"] == "misleading-ipv6-public-name"
+    assert networks(result) == {"net1": {"name": name, "type": intent[2], "subnet": {}}}
+    assert interface(result)["binding"] == name
     assert source == before
 
 
@@ -164,14 +197,14 @@ def test_allowed_scope_does_not_split_services(source, config_data, occupied):
 
 
 @pytest.mark.parametrize("l2_first", [False, True])
-def test_l2_coexists_with_one_fabnet_preserving_order(source, config, l2_first):
+def test_l2_coexists_with_one_fabnet_preserving_order(source, config, intent, l2_first):
     source.insert(0, {"apiVersion": "infra.model/v0alpha1", "kind": "Network",
                       "metadata": {"name": "management"}, "spec": {"layer": "layer2"}})
     attachment = {"name": "management", "networkRef": "network/management", "interfaceRequirements": {"type": "ethernet"}}
     attachments = node(source)["networkAttachments"]
     attachments.insert(0 if l2_first else 1, attachment)
     result = render(source, config)
-    expected = ["L2Bridge", "IPv4"] if l2_first else ["IPv4", "L2Bridge"]
+    expected = ["L2Bridge", intent[2]] if l2_first else [intent[2], "L2Bridge"]
     assert [n["type"] for n in networks(result).values()] == expected
     components = nodes(result)["node1"]["pci"]["network"]
     assert list(components) == ["nic1", "nic2"]
@@ -193,6 +226,7 @@ def test_partial_intent_fails(source, config, field):
 @pytest.mark.parametrize("spec,reason,path", [
     ({"layer": "layer3"}, "addressFamily", "/spec/addressFamily"),
     ({"layer": "layer3", "prefixes": ["192.0.2.0/24"]}, "addressFamily", "/spec/addressFamily"),
+    ({"layer": "layer3", "reachability": "public", "prefixes": ["8.8.8.0/24"]}, "addressFamily", "/spec/addressFamily"),
     ({"layer": "layer3", "addressFamily": "ipv4"}, "addressAllocation", "/spec/addressAllocation"),
     ({}, "explicit layer2 or supported layer3", "/spec/layer"),
 ])
@@ -201,11 +235,43 @@ def test_ambiguous_intent_fails_without_inference(source, config, spec, reason, 
     assert_failure(source, config, reason, path)
 
 
-@pytest.mark.parametrize("family", ["ipv4", "ipv6"])
-def test_public_is_generic_valid_but_phase_b(source, config, family):
-    network(source)["spec"].update(addressFamily=family, reachability="public")
+def test_explicit_service_selection_is_generic_valid(source, config, intent):
     InfrastructureModel.from_documents(source).validate()
-    assert_failure(source, config, "external FABNet realization, deferred to Phase B", "/spec/reachability")
+    assert networks(render(source, config))["net1"] == {
+        "name": "research-network", "type": intent[2], "subnet": {}}
+
+
+@pytest.mark.parametrize("layer", [None, "layer2"])
+def test_complete_intent_requires_explicit_layer3(source, config, layer):
+    if layer is None:
+        network(source)["spec"].pop("layer")
+    else:
+        network(source)["spec"]["layer"] = layer
+    assert_failure(source, config, "network_layer3_required", "/spec/addressFamily")
+
+
+@pytest.mark.parametrize("field,value", [
+    ("addressFamily", "dual-stack"), ("addressAllocation", "static"), ("reachability", "private"),
+])
+def test_unsupported_intent_does_not_fall_back(source, config, field, value):
+    network(source)["spec"][field] = value
+    assert_failure(source, config, "core validation failed", f"/spec/{field}")
+
+
+def test_independent_multisite_services(config, intent):
+    documents = [doc.data for doc in load_documents(FIXTURES / "fabric-fabnet-multisite.yaml")]
+    for doc in documents:
+        if doc["kind"] == "Network":
+            doc["spec"].update(addressFamily=intent[0], reachability=intent[1])
+    result = render(documents, config)
+    assert len(networks(result)) == 3
+    assert all(net["type"] == intent[2] and net["subnet"] == {} for net in networks(result).values())
+    assert [n["site"] for n in nodes(result).values()] == ["UCSD", "LOSA", "SALT"] * 2
+    assert [n["worker"] for n in nodes(result).values()] == [
+        "ucsd-w3.fabric-testbed.net", "losa-w1.fabric-testbed.net", "salt-w1.fabric-testbed.net"] * 2
+    assert all(len({n["site"] for n in nodes(result).values()
+                    if any(i["binding"] == net["name"] for c in n["pci"]["network"].values()
+                           for i in c["interfaces"].values())}) == 1 for net in networks(result).values())
 
 
 def test_layer3_point_to_point_fails(source, config):
@@ -235,7 +301,7 @@ def test_unselected_network_is_ignored(source, config):
         n["networkAttachments"][0]["networkRef"] = "network/unused"
     unused = deepcopy(network(source))
     unused["metadata"]["name"] = "unused"
-    unused["spec"]["reachability"] = "public"
+    unused["spec"].pop("addressAllocation")
     source.extend([other, unused])
     assert len(networks(render(source, config, cluster="research"))) == 1
 
@@ -259,13 +325,15 @@ def test_dedicated_fabnet_fails(source, config, model, grouped):
 
 
 @pytest.mark.parametrize("different_network", [False, True])
-def test_more_than_one_fabnet_attachment_per_vm_fails(source, config, different_network):
+@pytest.mark.parametrize("second_reachability", ["provider-internal", "public"])
+def test_more_than_one_fabnet_attachment_per_vm_fails(source, config, different_network, second_reachability):
     a = deepcopy(node(source)["networkAttachments"][0])
     a["name"] = "second"
     if different_network:
         net = deepcopy(network(source))
         net["metadata"]["name"] = "second"
         net["spec"]["addressFamily"] = "ipv6"
+        net["spec"]["reachability"] = second_reachability
         source.append(net)
         a["networkRef"] = "network/second"
     node(source)["networkAttachments"].append(a)
@@ -290,7 +358,7 @@ def test_authored_network_addressing_fails(source, config, field, value):
     assert_failure(source, config, reason, path)
 
 
-@pytest.mark.parametrize("addresses", [[], ["192.0.2.10"]])
+@pytest.mark.parametrize("addresses", [[], ["192.0.2.10"], ["2001:db8::10"]])
 def test_authored_attachment_addressing_fails(source, config, addresses):
     node(source)["networkAttachments"][0]["addresses"] = addresses
     assert_failure(source, config, "provider_managed_addressing", "/spec/nodes/0/networkAttachments/0/addresses")
@@ -310,6 +378,7 @@ def test_no_effective_site_inference(source, config):
     ({"type": "ethernet", "minSpeed": {"value": 100, "unit": "Gbps"}}, "minSpeed", "/minSpeed"),
     ({"type": "ethernet", "features": ["rdma"]}, "feature interface", "/features"),
     ({"type": "ethernet", "adapter": {"class": "dpu"}}, "only standard adapter", "/adapter/class"),
+    ({"type": "ethernet", "adapter": {"class": "other", "model": "Alveo U280"}}, "only standard adapter", "/adapter/class"),
     ({"type": "infiniband"}, "explicit Ethernet", ""),
     (None, "explicit Ethernet", ""),
 ])
@@ -322,10 +391,10 @@ def test_unsupported_interface_requirements(source, config, requirements, reason
     assert_failure(source, config, reason, "/spec/nodes/0/networkAttachments/0/interfaceRequirements" + suffix)
 
 
-@pytest.mark.parametrize("failure", ["public", "shared", "multiple", "addressing"])
+@pytest.mark.parametrize("failure", ["partial", "shared", "multiple", "addressing"])
 def test_invalid_cli_emits_no_partial_yaml(source, tmp_path, capsys, failure):
-    if failure == "public":
-        network(source)["spec"]["reachability"] = "public"
+    if failure == "partial":
+        network(source)["spec"].pop("addressAllocation")
     elif failure == "shared":
         other = deepcopy(cluster(source))
         other["metadata"]["name"] = "other"

@@ -317,10 +317,12 @@ spec:
 ```
 
 The offline FABRIC adapter maps this complete combination to internal FABNet.
-Public intent remains generic-valid but external FABNet is deferred to Phase B.
+Changing `reachability` to `public` selects external FABNet in Phase B1, with
+the same provider-managed, site-local adapter restrictions. Rendering external
+intent does not activate public routing or configure guest routes.
 In the reviewed workflow, FABRIC supplies prefix/gateway information and
 fabric-generic-cluster selects and configures guest addresses after submission.
-See [FABRIC adapter restrictions and downstream caveats](fabric-adapter.md#internal-fabnet-phase-a).
+See [FABRIC adapter restrictions and downstream caveats](fabric-adapter.md#internal-and-external-fabnet).
 
 `siteRefs` is an allowed/declared site scope. When supplied it must contain at
 least one unique canonical Site reference, and every reference must resolve to

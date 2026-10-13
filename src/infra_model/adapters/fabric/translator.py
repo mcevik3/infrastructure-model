@@ -114,33 +114,36 @@ def _devices(node: Entry, registry: Registry) -> dict[str, tuple[_FabricDevicePl
 def _fabnet(entry: Entry, endpoints: list[_EndpointRealization], selected_cluster: str,
             global_endpoint_count: int) -> _FabricNetworkPlan:
     spec = entry.data["spec"]
-    if spec.get("reachability") == "public":
-        _fail(entry, "/spec/reachability", "public reachability requires external FABNet realization, deferred to Phase B")
     for field, supported in (("addressFamily", {"ipv4", "ipv6"}),
                              ("addressAllocation", {"provider-managed"}),
-                             ("reachability", {"provider-internal"})):
+                             ("reachability", {"provider-internal", "public"})):
         if spec.get(field) not in supported:
             _fail(entry, f"/spec/{field}",
-                  f"internal FABNet requires explicit {field} in {sorted(supported)!r}; partial Layer-3 intent is unsupported")
+                  f"FABNet requires explicit {field} in {sorted(supported)!r}; partial Layer-3 intent is unsupported")
     if spec.get("connectivity", "multipoint") != "multipoint":
-        _fail(entry, "/spec/connectivity", "internal FABNet requires multipoint connectivity; Layer-3 point-to-point is unsupported")
+        _fail(entry, "/spec/connectivity", "FABNet requires multipoint connectivity; Layer-3 point-to-point is unsupported")
     if len(endpoints) != global_endpoint_count:
         _fail(entry, "/spec",
               f"selected Cluster {selected_cluster} does not contain all FABNet endpoints: "
               f"renders {len(endpoints)} of {global_endpoint_count} NetworkAttachments; cross-Cluster shared FABNet is unsupported")
     sites = {endpoint.site for endpoint in endpoints}
     if len(sites) != 1:
-        _fail(entry, "/spec", f"internal FABNet requires exactly one distinct effective FABRIC endpoint site; found {len(sites)}")
+        _fail(entry, "/spec", f"FABNet requires exactly one distinct effective FABRIC endpoint site; found {len(sites)}")
     for endpoint in endpoints:
         if endpoint.component.model != "NIC_Basic":
             _fail(endpoint.attachment, "/interfaceRequirements",
-                  f"internal FABNet requires NIC_Basic; dedicated-NIC FABNet bindings are deferred; resolved {endpoint.component.model}")
+                  f"FABNet requires NIC_Basic; dedicated-NIC FABNet bindings are deferred; resolved {endpoint.component.model}")
         if "addresses" in endpoint.attachment.data:
-            _fail(endpoint.attachment, "/addresses", "internal FABNet requires attachment addresses to be omitted, including empty lists")
+            _fail(endpoint.attachment, "/addresses", "FABNet requires attachment addresses to be omitted, including empty lists")
     for field in ("prefixes", "defaultGateways", "dns"):
         if field in spec:
-            _fail(entry, f"/spec/{field}", f"internal FABNet requires Network {field} to be omitted, including empty configuration")
-    service = {"ipv4": "IPv4", "ipv6": "IPv6"}[spec["addressFamily"]]
+            _fail(entry, f"/spec/{field}", f"FABNet requires Network {field} to be omitted, including empty configuration")
+    service = {
+        ("ipv4", "provider-internal"): "IPv4",
+        ("ipv6", "provider-internal"): "IPv6",
+        ("ipv4", "public"): "IPv4Ext",
+        ("ipv6", "public"): "IPv6Ext",
+    }[spec["addressFamily"], spec["reachability"]]
     return _FabricNetworkPlan(entry.data["metadata"]["name"], service, (), None, None, emit_empty_subnet=True)
 
 

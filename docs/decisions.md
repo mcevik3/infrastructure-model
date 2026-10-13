@@ -2,6 +2,30 @@
 
 This document records the targeted architecture-review corrections for v0alpha1.
 
+## FABNet Phase B1: offline external services
+
+The adapter now resolves complete explicit Layer-3 + provider-managed + public
+intent to `IPv4Ext` or `IPv6Ext` according to `addressFamily`. The internal
+`IPv4`/`IPv6` mappings are unchanged. The Phase A restrictions apply to both
+external variants, including one mapped endpoint site per service, NIC_Basic,
+one FABNet attachment per VM, selected-Cluster ownership, and omitted authored
+addressing even when empty. Independent site-local services remain supported.
+
+This replaces Phase A's public-reachability deferral without changing the generic
+schema/validator, adapter config, private plan, or renderer. New provider-neutral
+fixtures compare semantically with `_slice_topology_7-3.yml` and
+`_slice_topology_7-4.yml`; byte baselines preserve internal FABNet and L2/device
+output. Names and address formats do not select services, and partial or
+unsupported intent fails explicitly.
+
+Public-routing activation remains downstream: the reviewed notebook's Step 7.3
+calls `enable_public_routing()`, which uses `make_ip_publicly_routable()` and
+submits a slice modification. FABRIC entitlements may be required; permissions
+are not verified here. Successful creation or routing activation does not prove
+guest default routes or Internet connectivity. No live operations, guest routing,
+inventory preflight, scheduling, or downstream changes are included. See the
+[adapter contract](fabric-adapter.md#internal-and-external-fabnet).
+
 ## FABNet Phase A: generic Layer-3 intent and offline internal services
 
 `Network.spec.addressFamily` (`ipv4`, `ipv6`), `addressAllocation`
@@ -30,8 +54,8 @@ already preserves the new attributes; no additional public model types are neede
 
 A2 resolves complete explicit Layer-3 + provider-managed + provider-internal
 intent to `IPv4` (FABNetv4) or `IPv6` (FABNetv6) according to addressFamily.
-Public/external FABNet (`IPv4Ext`, `IPv6Ext`) is deferred to Phase B with an explicit
-translation error. Names and prefixes do not select services. Existing L2Bridge,
+Public/external FABNet (`IPv4Ext`, `IPv6Ext`) was deferred in Phase A with an explicit
+translation error, superseded by Phase B1 above. Names and prefixes do not select services. Existing L2Bridge,
 L2STS, and addressless ConnectX-6-only L2PTP selection remains unchanged.
 
 One selected Network realizes one service at exactly one distinct mapped endpoint
@@ -64,7 +88,7 @@ Three generic acceptance fixtures correspond to `_slice_topology_7-1.yml`,
 read-only notebook files. The focused fixture config preserves explicit workers
 and historical images without changing the standard adapter configuration.
 No live operations, inventory preflight, scheduling, downstream changes, or
-external FABNet implementation are included. See [the adapter contract](fabric-adapter.md#internal-fabnet-phase-a).
+external FABNet implementation were included in Phase A. See [the adapter contract](fabric-adapter.md#internal-and-external-fabnet).
 
 The schema API remains `v0alpha1`; the Python distribution remains `0.1.0a1`.
 These are separate version domains. The existing `infra.model` API namespace

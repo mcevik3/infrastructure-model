@@ -1,0 +1,71 @@
+apiVersion: infra.model/v0alpha1
+kind: Site
+metadata:
+  name: research-site
+spec: {}
+---
+apiVersion: infra.model/v0alpha1
+kind: Network
+metadata:
+  name: research-public-v4
+spec:
+  layer: layer3
+  connectivity: multipoint
+  siteRefs:
+  - site/research-site
+  addressFamily: ipv4
+  addressAllocation: provider-managed
+  reachability: public
+---
+apiVersion: infra.model/v0alpha1
+kind: Cluster
+metadata:
+  name: research
+spec:
+  siteRef: site/research-site
+  image:
+    name: Rocky Linux
+    version: '9'
+  nodes:
+  - name: lc-1
+    realization:
+      type: vm
+    requirements:
+      compute:
+        cpu:
+          count: 4
+          unit: vcpu
+      memory:
+        capacity:
+          value: 16
+          unit: GiB
+      storage:
+        capacity:
+          value: 10
+          unit: GiB
+    networkAttachments:
+    - name: dataplane
+      networkRef: network/research-public-v4
+      interfaceRequirements:
+        type: ethernet
+  - name: lc-2
+    realization:
+      type: vm
+    requirements:
+      compute:
+        cpu:
+          count: 4
+          unit: vcpu
+      memory:
+        capacity:
+          value: 16
+          unit: GiB
+      storage:
+        capacity:
+          value: 10
+          unit: GiB
+    networkAttachments:
+    - name: dataplane
+      networkRef: network/research-public-v4
+      interfaceRequirements:
+        type: ethernet
