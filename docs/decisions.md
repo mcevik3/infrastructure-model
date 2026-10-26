@@ -17,13 +17,16 @@ deterministic names/order, one FABNet attachment per VM, and existing L2/L2PTP
 restrictions. Mixed FABNet/L2Bridge or FABNet/L2STS ports share a component when
 explicitly grouped. Provider-managed addressing remains empty in offline output.
 
-DPU networking stops at a generic-model gap: interface adapter selectors and
-adapterGroup cannot reference an independent `requirements.devices` allocation.
-The minimal missing semantics are an explicit requirement reference and instance
-selection for count-expanded requests (or individually named count-one requests).
-Matching group/name/model alone is insufficient, even with one candidate. No
-schema decision, implicit selection, duplicate allocation, or merging of requests
-is introduced. Existing DPU model mappings and allocation-only behavior remain.
+C2.3a adopts the hybrid model: ordinary NICs retain attachment-driven allocation
+and `adapterGroup`; attachments using independently named devices explicitly set
+`deviceRequirementRef`. Local names normalize to existing same-node canonical
+DeviceRequirement IDs. Only effective count-one DPU/FPGA requirements are eligible;
+the reference requires `interfaceRequirements` and excludes `adapterGroup`.
+Explicit adapter identity contradictions are rejected. The graph records
+`uses_device_requirement`, and correlated hardware feasibility remains UNKNOWN.
+This is logical intent, not allocation or binding support. Count-expanded device
+selection, FABRIC DPU interface binding, and FPGA network binding remain deferred.
+Existing DPU model mappings and allocation-only behavior remain unchanged.
 See the [model review](fabric-adapter.md#dpu-network-binding-model-review).
 
 Historical `m5-complex.yml` provides semantic evidence for dedicated mixed ports
@@ -736,10 +739,10 @@ key equal to inner name and no count or interfaces. No demand keeps `dpu: {}`.
 This uses the downstream DPU parser's optional interfaces and allocation path
 through `add_dpus_to_node()` and `Node.add_component(name, model)`.
 
-DPU NetworkAttachments remain unsupported even when a device request matches
-their name/vendor/model or they use adapterGroup. Existing core intent provides
-no explicit relationship between the two requests. No implicit binding, merging,
-or deduplication is introduced. Core schema/validation, network plans/services,
+DPU NetworkAttachments remain unsupported by the FABRIC adapter even when a
+device request matches their name/vendor/model or they use adapterGroup. C2.3a
+adds an explicit core relationship only; provider binding remains deferred.
+No implicit binding, merging, or deduplication is introduced. Network plans/services,
 GPU/FPGA/NVMe resolution, configuration, and public API remain unchanged.
 
 Compatibility follows fabric-generic-cluster 1.0.20, `main` revision
@@ -759,8 +762,9 @@ does not prove automatic ARM initialization downstream. Permissions, inventory,
 availability, host selection, scheduling, and submission remain runtime concerns.
 Earlier manual acceptance does not establish provisioning for this increment.
 
-Future design: an explicit node-local relationship between a requested DPU device
-instance and NetworkAttachments/adapterGroup if unified DPU networking is desired.
+The explicit node-local relationship is now described in
+[device requirement references](model-v0alpha1.md#referencing-an-independent-device-requirement).
+Provider realization of that relationship remains future work.
 
 ## Offline FABRIC dedicated ConnectX-5 realization
 

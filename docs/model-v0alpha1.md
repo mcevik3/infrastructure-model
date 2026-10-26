@@ -478,8 +478,8 @@ prefix declared on that Network. An addressless attachment may refer to a Networ
 without prefixes. Addresses are intent, distinct from observed addresses in status.
 Node-specific host addresses remain on `networkAttachments[].addresses`.
 Attachments hold `networkRef`, `addresses`, `interfaceRequirements`, and optional
-`adapterGroup`; they do not duplicate or override shared Network gateway/DNS
-configuration.
+`adapterGroup` or `deviceRequirementRef`; they do not duplicate or override shared
+Network gateway/DNS configuration.
 
 ## Device and interface requirements
 
@@ -564,10 +564,51 @@ are not feature vocabulary. No feature implies configuration or allocation.
 Ordinary or specialized connectivity to a logical Network belongs primarily in
 `networkAttachments[].interfaceRequirements`; users need not repeat a NIC under
 `requirements.devices`. A DPU can be requested independently as `type: dpu`, or
-an attachment can require `adapter: {class: dpu}`. There is intentionally no
-cross-reference between these requests. They are checked independently and may
-refer conceptually to the same hardware; neither co-location on one component
-nor separation onto different components is established.
+an attachment can require `adapter: {class: dpu}`. Without an explicit reference,
+these requests remain independent; matching names or selectors never imply sharing.
+
+### Referencing an independent device requirement
+
+An attachment targeting an independently declared DPU or future FPGA uses
+`deviceRequirementRef` to record that relationship:
+
+```yaml
+requirements:
+  devices:
+    - name: dpu-a
+      type: dpu
+networkAttachments:
+  - name: data
+    networkRef: network/research-data
+    deviceRequirementRef: dpu-a
+    interfaceRequirements: {type: ethernet}
+```
+
+A local name resolves within the attachment's ClusterNode to
+`cluster/<cluster>/node/<node>/requirement/device/<name>`. The equivalent canonical
+ID is also accepted. Names reuse the existing case-sensitive identifier rules;
+unknown targets and references to another node are rejected. Only effective
+count-one `dpu` and `fpga` requirements are eligible. Omitted `count` still means
+one without inserting a default. Count-expanded requirements remain valid for
+allocation-only demand; separately name each device when referencing multiple
+devices. GPU, storage, and broad `other` requirements cannot be network targets.
+
+`deviceRequirementRef` requires `interfaceRequirements` and is mutually exclusive
+with `adapterGroup` on that attachment. Explicit device `constraints.vendor/model`
+and interface `adapter.vendor/model` must agree. A DPU also requires any explicit
+`adapter.class` to be `dpu`; FPGA has no generic adapter-class mapping. Attachments
+sharing a reference must have compatible adapter selectors, but may request
+different interface types, speeds, or features. Unspecified selectors stay omitted.
+Multiple attachments may reference one requirement; separately named identical
+requirements retain distinct identities. Ordinary NIC attachments continue to use
+attachment-driven allocation and existing `adapterGroup` semantics.
+
+The topology adds `uses_device_requirement` from NetworkAttachment to
+DeviceRequirement, retaining existing containment and network edges. This records
+logical intent, with no physical device/port selection or inventory reservation.
+DPU and FPGA are potentially interface-bearing families; generic validity does
+not establish binding support for a particular provider or model. C2.3a adds no
+FABRIC translation, allocation, or renderer changes, nor FPGA network binding.
 
 ### Node-local network adapter grouping
 
@@ -631,7 +672,7 @@ independent `requirements.devices` semantics are unchanged.
 
 `adapterGroup` is a node-local realization constraint carried in normalized IR,
 not a globally addressable topology resource. It creates no kind, canonical ID,
-or graph edge. NetworkAttachment relationships remain unchanged.
+or graph edge. Grouping alone leaves NetworkAttachment relationships unchanged.
 
 The generic model describes WHAT network capability/topology is required;
 provider adapters decide HOW provider resources realize it.
@@ -689,8 +730,8 @@ candidate out even when another property is unreported. For each device request:
 - Fewer possible matches than `count`, even including uncertain candidates → UNSATISFIED.
 - Otherwise, or when the collection is omitted → UNKNOWN.
 
-For each interface request, the same rule applies with a count of one suitable
-interface and its own adapter. A known suitable interface suffices despite other
+For each interface request without `deviceRequirementRef`, the same rule applies
+with a count of one suitable interface and its own adapter. A known suitable interface suffices despite other
 incomplete candidates. If every eligible interface is 25 Gbps, a 100 Gbps request
 is UNSATISFIED; if an otherwise eligible port's speed or requested RDMA support
 is unreported, it is UNKNOWN. Exact rational Quantity comparison is reused.
@@ -704,9 +745,16 @@ source path; interface diagnostics identify the attachment's
 `interfaceRequirements`. Without exact placement, VM/site-only and unplaced
 intent remain valid with the existing single UNKNOWN placement warning per node.
 
-Inventory compatibility still evaluates every requirement and attachment
-independently, even within an explicit adapter group. These checks do not prove
-joint group realizability. Counts do not reserve inventory or subtract it from
+For attachments with `deviceRequirementRef`, exact placement retains independent
+device inventory checks, but interface feasibility is UNKNOWN with an
+`unevaluated_requirement` warning at `deviceRequirementRef`: there is no generic
+evaluator correlating the requested device with its interfaces. Separate device
+and interface matches cannot prove this relationship; unrelated Server NICs also
+cannot disprove FPGA interface intent, whose accelerator inventory has no ports.
+
+Without a reference, inventory compatibility still evaluates every requirement
+and attachment independently, even within an explicit adapter group. These checks
+do not prove joint group realizability. Counts do not reserve inventory or subtract it from
 another request. There is no component/port exclusivity, scheduling, physical
 binding, PCI-slot assignment, NUMA/device affinity, GPU partitioning, or proof of
 live availability.
@@ -879,7 +927,7 @@ The processing pipeline is:
 1. Safely parse files; reject ambiguous/non-JSON-compatible YAML.
 2. Validate all source documents against the bundled schemas.
 3. Derive canonical IDs, enforce name uniqueness, index embedded entities, and
-   expand documented local storage references.
+   expand documented local storage and device requirement references.
 4. Resolve references and check physical identity, CPU topology, storage and
    block-device configuration, IP membership, Network gateway/DNS constraints,
    node-local adapter identity conflicts, and exact placement.
@@ -902,7 +950,8 @@ Normalized results add `id` to every entity and `kind` to embedded entities, lea
 authored spec/status/extensions separate. Public query results are copies. Names,
 units, and MAC/PCI spelling retain authored representations. Existing network
 and placement references already use canonical syntax. Local storage references
-expand to full canonical IDs in all normalized dictionary and graph views.
+and attachment `deviceRequirementRef` values expand to full canonical IDs in all
+normalized dictionary and graph views.
 Source inputs and opaque status/extensions are never mutated.
 Network gateway/DNS omission, explicit empty lists, and resolver order are
 preserved in all views.
@@ -949,6 +998,7 @@ ID. Edges preserve these meanings and directions:
 | `uses_pv` | VolumeGroup → PhysicalVolume |
 | `allocated_from` | LogicalVolume → VolumeGroup |
 | `requires_device` | ClusterNode → DeviceRequirement |
+| `uses_device_requirement` | NetworkAttachment → DeviceRequirement: explicit logical use, not physical allocation |
 
 Network → Site edges come only from declared `siteRefs`; no additional edges
 are derived from attached endpoint sites. Effective endpoint sites remain

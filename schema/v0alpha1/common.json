@@ -488,6 +488,10 @@
           "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/name",
           "description": "Node-local identity for attachments that must share one allocatable network adapter/component."
         },
+        "deviceRequirementRef": {
+          "$ref": "https://infra-model.invalid/schema/v0alpha1/common.json#/$defs/deviceRequirementRef",
+          "description": "Logical use of an independently named, same-node, count-one DPU or FPGA requirement; not a physical device allocation or reservation."
+        },
         "addresses": {
           "type": "array",
           "items": {
@@ -510,6 +514,17 @@
         "name",
         "networkRef"
       ],
+      "dependentRequired": {
+        "deviceRequirementRef": [
+          "interfaceRequirements"
+        ]
+      },
+      "not": {
+        "required": [
+          "deviceRequirementRef",
+          "adapterGroup"
+        ]
+      },
       "additionalProperties": false
     },
     "clusterNode": {
@@ -706,6 +721,10 @@
     "deviceRef": {
       "type": "string",
       "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._-]*|server/[A-Za-z0-9][A-Za-z0-9._-]*/storage-device/[A-Za-z0-9][A-Za-z0-9._-]*)$(?![\\s\\S])"
+    },
+    "deviceRequirementRef": {
+      "type": "string",
+      "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9._-]*|cluster/[A-Za-z0-9][A-Za-z0-9._-]*/node/[A-Za-z0-9][A-Za-z0-9._-]*/requirement/device/[A-Za-z0-9][A-Za-z0-9._-]*)$(?![\\s\\S])"
     },
     "physicalVolumeRef": {
       "type": "string",

@@ -44,6 +44,8 @@ class Topology:
             elif entry.kind == "NetworkAttachment":
                 self._edge(entry.id, data["networkRef"], "attached_to")
                 self._edge(entry.parent, data["networkRef"], "network_attachment", entry.id, attachment=entry.id)
+                if "deviceRequirementRef" in data:
+                    self._edge(entry.id, data["deviceRequirementRef"], "uses_device_requirement")
             elif entry.kind == "Link":
                 left, right = fields["endpoints"]
                 for endpoint in (left, right):

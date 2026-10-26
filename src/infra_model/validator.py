@@ -118,6 +118,7 @@ class SemanticValidator:
         self._network_endpoints = Counter(
             entry.data["networkRef"] for entry in registry.of_kind("NetworkAttachment")
         )
+        self._device_reference_selectors: dict[str, dict[str, str]] = {}
 
     def _issue(self, entry: Entry, code: str, message: str, path: str = "", *, warning: bool = False) -> None:
         target = self.warnings if warning else self.issues
@@ -437,6 +438,8 @@ class SemanticValidator:
             servers.add(address)
 
     def _attachment(self, entry: Entry) -> None:
+        if "deviceRequirementRef" in entry.data:
+            self._attachment_device_requirement(entry)
         network = self._resolve(entry, entry.data["networkRef"], "Network", "/networkRef")
         if network is None:
             return
@@ -464,6 +467,41 @@ class SemanticValidator:
                             f"attachment address must match Network addressFamily {family}", f"/addresses/{index}")
             if not any(address.version == prefix.version and address in prefix for prefix in prefixes):
                 self._issue(entry, "address_outside_prefix", f"{value} is not within any prefix of {network.id}", f"/addresses/{index}")
+
+    def _attachment_device_requirement(self, entry: Entry) -> None:
+        """Validate logical device identity without selecting hardware or ports."""
+        path = "/deviceRequirementRef"
+        target = self._same_parent(entry, entry.data["deviceRequirementRef"], "DeviceRequirement", path)
+        if target is None:
+            return
+        required = target.data
+        if required.get("count", 1) != 1:
+            self._issue(entry, "device_requirement_count",
+                        f"{target.id} must have effective count one to be referenced; name separate requirements for separate devices", path)
+        if required["type"] not in {"dpu", "fpga"}:
+            self._issue(entry, "device_requirement_type",
+                        f"{target.id} has non-network-eligible type {required['type']!r}; only DPU and FPGA requirements may be referenced", path)
+            return
+        selectors = self._device_reference_selectors.get(target.id)
+        if selectors is None:
+            selectors = {field: value for field, value in required.get("constraints", {}).items()
+                         if field in {"vendor", "model"}}
+            # DPU maps to an exact adapter class; FPGA has no generic class mapping.
+            if required["type"] == "dpu":
+                selectors["class"] = "dpu"
+            self._device_reference_selectors[target.id] = selectors
+        for field, value in entry.data["interfaceRequirements"].get("adapter", {}).items():
+            # No FPGA class mapping does not permit an explicit DPU identity.
+            if required["type"] == "fpga" and field == "class" and value == "dpu":
+                self._issue(entry, "device_requirement_conflict",
+                            f"{target.id} has type 'fpga', which conflicts with adapter.class 'dpu'",
+                            "/interfaceRequirements/adapter/class")
+                continue
+            previous = selectors.setdefault(field, value)
+            if value != previous:
+                self._issue(entry, "device_requirement_conflict",
+                            f"{target.id} has conflicting device/interface adapter.{field} selectors: {previous!r} and {value!r}",
+                            f"/interfaceRequirements/adapter/{field}")
 
     def _host_placement(self, node: Entry) -> None:
         """Validate desired VM host identity/site without evaluating host capacity."""
@@ -537,6 +575,14 @@ class SemanticValidator:
         for attachment in node.data.get("networkAttachments", []):
             required = attachment.get("interfaceRequirements")
             if required is None:
+                continue
+            if "deviceRequirementRef" in attachment:
+                # Independent device and interface matches cannot prove that the
+                # referenced device supplies this interface. FPGA inventory has
+                # no generic port representation, and no family is bound here.
+                self._result(self.registry.entries[attachment["id"]], _Compatibility.UNKNOWN,
+                             "deviceRequirementRef records logical intent; correlated device/interface feasibility has no generic evaluator",
+                             "/deviceRequirementRef")
                 continue
             results = ([] if adapters is None else
                        [_interface_match(required, interface, adapter)

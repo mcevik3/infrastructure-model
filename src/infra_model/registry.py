@@ -75,9 +75,9 @@ class Registry:
                         self._children(node, storage.get("lvm", {}), path + "/lvm", field, "storage/lvm/" + segment, kind)
         if self._issues:
             raise ValidationError(self._issues)
-        self._normalize_storage_references()
+        self._normalize_references()
 
-    def _normalize_storage_references(self) -> None:
+    def _normalize_references(self) -> None:
         """Expand only the explicitly supported, unambiguous local syntax.
 
         Resolution, kind and ownership checks follow in semantic validation.
@@ -85,7 +85,9 @@ class Registry:
         """
         for entry in self.entries.values():
             data = entry.data
-            if entry.kind in {"StorageDevice", "StorageVolume"}:
+            if entry.kind == "NetworkAttachment" and "deviceRequirementRef" in data:
+                data["deviceRequirementRef"] = self._local(data["deviceRequirementRef"], entry.parent + "/requirement/device/")
+            elif entry.kind in {"StorageDevice", "StorageVolume"}:
                 if "controllerRef" in data:
                     data["controllerRef"] = self._local(data["controllerRef"], entry.parent + "/storage-controller/")
                 if "deviceRefs" in data:
