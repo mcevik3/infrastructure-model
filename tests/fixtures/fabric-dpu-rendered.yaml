@@ -1,0 +1,47 @@
+site_topology_nodes:
+  nodes:
+    node1:
+      name: vm-a
+      hostname: vm-a
+      site: SRI
+      worker: ''
+      capacity:
+        cpu: 2
+        ram: 4
+        disk: 20
+        os: default_rocky_9
+      pci:
+        dpu:
+          dpu1:
+            name: dpu1
+            model: NIC_ConnectX_7_100
+          dpu2:
+            name: dpu2
+            model: NIC_ConnectX_7_100
+        fpga: {}
+        gpu: {}
+        nvme: {}
+        network:
+          nic1:
+            name: nic1
+            model: NIC_Basic
+            interfaces:
+              iface1:
+                device: eth1
+                connection: conn-eth1
+                binding: management
+      persistent_storage:
+        volume: {}
+      specific:
+        openstack:
+          control: 'false'
+          network: 'false'
+          compute: 'false'
+          storage: 'false'
+site_topology_networks:
+  networks:
+    net1:
+      name: management
+      type: L2Bridge
+site_topology_facility_ports:
+  facility_ports: {}

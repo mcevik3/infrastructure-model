@@ -1,6 +1,6 @@
 """Mechanical historical YAML dictionary rendering; no topology resolution."""
 
-from .plan import _FabricDevicePlan, _FabricNodePlan, _FabricRenderPlan
+from .plan import _FabricDevicePlan, _FabricInterfacePlan, _FabricNodePlan, _FabricRenderPlan
 
 
 def _guest_interface_names(ordinal: int) -> tuple[str, str]:
@@ -10,28 +10,39 @@ def _guest_interface_names(ordinal: int) -> tuple[str, str]:
 
 def _devices(plans: tuple[_FabricDevicePlan, ...]) -> dict:
     # Downstream probing uses the key; deployment uses the inner name.
-    return {device.name: {"name": device.name, "model": device.model} for device in plans}
+    devices = {}
+    for device in plans:
+        data = {"name": device.name, "model": device.model}
+        if device.interfaces:
+            data["interfaces"] = _interfaces(device.interfaces)
+        devices[device.name] = data
+    return devices
+
+
+def _interfaces(plans: tuple[_FabricInterfacePlan, ...]) -> dict:
+    interfaces = {}
+    for index, interface in enumerate(plans, 1):
+        device, connection = _guest_interface_names(interface.attachment_ordinal)
+        data = {"device": device, "connection": connection, "binding": interface.network_name}
+        if interface.emit_empty_address_families:
+            data.update(ipv4={}, ipv6={})
+        for address in interface.addresses:
+            family = {"address": f"{address.address}/{address.prefix_length}"}
+            if address.gateway is not None:
+                family["gateway"] = address.gateway
+            if address.dns is not None:
+                family["dns"] = address.dns
+            data[f"ipv{address.family}"] = family
+        interfaces[f"iface{index}"] = data
+    return interfaces
 
 
 def _node(plan: _FabricNodePlan) -> dict:
     components = {}
     for index, component in enumerate(plan.components, 1):
         name = f"nic{index}"
-        interfaces = {}
-        for interface_index, interface in enumerate(component.interfaces, 1):
-            device, connection = _guest_interface_names(interface.attachment_ordinal)
-            data = {"device": device, "connection": connection, "binding": interface.network_name}
-            if interface.emit_empty_address_families:
-                data.update(ipv4={}, ipv6={})
-            for address in interface.addresses:
-                family = {"address": f"{address.address}/{address.prefix_length}"}
-                if address.gateway is not None:
-                    family["gateway"] = address.gateway
-                if address.dns is not None:
-                    family["dns"] = address.dns
-                data[f"ipv{address.family}"] = family
-            interfaces[f"iface{interface_index}"] = data
-        components[name] = {"name": name, "model": component.model, "interfaces": interfaces}
+        components[name] = {"name": name, "model": component.model,
+                            "interfaces": _interfaces(component.interfaces)}
     return {
         "name": plan.name, "hostname": plan.name, "site": plan.site,
         "worker": plan.worker if plan.worker is not None else "",

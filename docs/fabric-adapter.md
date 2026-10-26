@@ -12,7 +12,9 @@ Existing plain Ethernet renders and the public API/config
 remain unchanged. The first L2PTP increment adds addressless point-to-point
 topology for two dedicated endpoints at two sites. PCI device realization adds
 exact supported GPU, FPGA, and NVMe models with generic count expansion.
-Independent DPU requests now support allocation only, without DPU interfaces.
+Independent DPU requests support allocation with optional explicit interface bindings.
+C2.3b uses the generic `deviceRequirementRef` relationship to attach networks to
+existing ConnectX-7-100/400 DPU allocations.
 Phase A adds internal IPv4/IPv6 FABNet from explicit provider-neutral Layer-3 intent.
 Phase B1 adds external IPv4/IPv6 FABNet for explicit `reachability: public`,
 preserving internal service selection and the same site-local restrictions.
@@ -68,10 +70,14 @@ Network `default_gateways` and `dns_servers` preserve `None` for unspecified,
 already contain their prefix length, gateway, and family-specific DNS server.
 The private node plan carries `worker: str | None`: a resolved FABRIC worker
 identifier, or `None` when no exact host is requested. No plan type becomes public API.
-Private frozen device records contain generated `name` and resolved `model`,
-held in the node plan's `gpus`, `fpgas`, `nvmes`, and `dpus` tuples. The translator resolves
+Private frozen device records contain generated `name`, resolved `model`, the
+canonical `requirement_id`, and an interface tuple. These records are held in the
+node plan's `gpus`, `fpgas`, `nvmes`, and `dpus` tuples. The translator resolves
 each device request and expands its count; the renderer only serializes those
-records. Network component/interface plans are independent of these devices.
+records. DPU references resolve against those already-planned records before
+service selection. Finalizing DPU interfaces preserves the allocated name/model
+and requirement ID; it creates no additional device records. Ordinary network
+components retain their separate NIC allocation path.
 The Network flag `emit_empty_subnet` and interface flag
 `emit_empty_address_families` request the historical FABNet placeholders. Both
 default to false for existing L2 plans. They carry target-format information,
@@ -179,12 +185,13 @@ along with CPU/memory/disk demands, images, roles, attachments, and addresses.
 The multi-site example supplies explicit Rocky Linux 9 image and
 2-vCPU/4-GiB/20-GiB VM capacities. Neither example requires an exact host.
 
-Plain `interfaceRequirements: {type: ethernet}` without `adapterGroup` continues
-to produce one `NIC_Basic` component. An empty `features` list adds no constraint
+Plain `interfaceRequirements: {type: ethernet}` without `adapterGroup` or
+`deviceRequirementRef` continues to produce one `NIC_Basic` component.
+An empty `features` list adds no constraint
 and is also accepted. Ordinary Ethernet is never upgraded to dedicated hardware.
 Missing interface type, non-Ethernet types, speed constraints, and nonempty
 features (including RDMA or SR-IOV) still fail, even with a supported dedicated
-identity. Independent GPU/FPGA/NVMe and allocation-only DPU requests use the
+identity. Independent GPU/FPGA/NVMe and DPU requests use the
 resolvers below; `other` devices remain unsupported. Omitted or empty device lists retain
 the historical empty device-family dictionaries.
 
@@ -253,8 +260,10 @@ pci:
 ```
 
 FPGA rendering allocates the component only; it omits the optional downstream
-`interfaces` field. No PCI device request is converted into a network attachment
-or changes network-service resolution.
+`interfaces` field. A generic FPGA `deviceRequirementRef` is valid core intent,
+but the FABRIC translator rejects that attachment explicitly as an unsupported
+provider realization. It never emits an unbound FPGA topology. Allocation-only
+FPGA behavior is unchanged.
 
 FPGA interface allocation and binding to NetworkServices are separate from
 bitstream loading and hardware activation. A link-down state before activation
@@ -290,7 +299,7 @@ at the requested Site. The offline adapter checks neither. It performs no site
 inventory lookup, host discovery, scheduling, or slice submission, and an exact
 hostRef is not evidence that requested devices are available on that host.
 
-## Allocation-only DPU components
+## DPU components and allocation compatibility
 
 Independent `requirements.devices` entries with `type: dpu` support exactly:
 
@@ -311,9 +320,10 @@ model identity does not prove arbitrary capabilities. Core already forbids
 `protocol` and `minCapacity` for DPU requests; no provider semantics are added.
 
 Count defaults semantically to one and expands in authored requirement order
-using an independent per-node `dpu1`, `dpu2`, … counter. Each private device
-record renders exactly `name` and `model`; map key equals inner name. No downstream
-`count` or `interfaces` field is emitted. Without DPU demand, `pci.dpu` remains `{}`.
+using an independent per-node `dpu1`, `dpu2`, … counter. Each allocation-only
+record renders exactly `name` and `model`; map key equals inner name. Unreferenced
+DPUs still omit `interfaces`, preserving historical output byte-for-byte. No
+`count` field is emitted. Without DPU demand, `pci.dpu` remains `{}`.
 For example, `ConnectX-7-100` with `count: 2` renders:
 
 ```yaml
@@ -332,10 +342,9 @@ The reviewed downstream path is YAML → DPU model → `add_dpus_to_node()` →
 interfaces to be omitted. The adapter validates exact mappings before rendering;
 permissive parsing and swallowed component-add exceptions cannot prove success.
 
-DPU-backed NetworkAttachments remain unsupported: `adapter.class: dpu` fails
-even with a matching device request or `adapterGroup`. Device and interface
-requirements have no explicit link. Matching name/vendor/model selectors do not
-establish one, and neither implicit binding nor deduplication occurs.
+DPU-backed NetworkAttachments require `deviceRequirementRef`, as described below.
+An attachment with only `adapter.class: dpu`, even with a matching device name,
+model, or `adapterGroup`, still fails. Allocation never implies a network binding.
 
 Compatibility uses the reviewed fabric-generic-cluster **1.0.20**, `main` revision
 `802a91190528c4e9d2f238464ee1bbcdd654ec97`, FABlib **1.9.5**, fabrictestbed **1.9.0**,
@@ -352,37 +361,105 @@ by fabric-generic-cluster. Project permissions, inventory, site availability,
 host selection, scheduling, and submission remain runtime concerns, with no
 offline checks. Earlier manual acceptance does not establish DPU provisioning.
 
-### DPU network-binding model review
+### DPU-backed NetworkAttachments (C2.3b)
 
-The generic `NetworkAttachment` has `networkRef`, `adapterGroup`, and
-`interfaceRequirements` (type, speed/features, and adapter class/vendor/model).
-None references a `DeviceRequirement`. Each `requirements.devices` entry has a
-canonical ID `cluster/<cluster>/node/<node>/requirement/device/<name>` and an
-optional `count`. As documented in the [generic model](model-v0alpha1.md#node-local-network-adapter-grouping),
-grouping relates attachments only; it creates no relationship to a device request.
-Equal group/requirement names or matching model selectors establish no association,
-even if only one DPU is requested.
+`deviceRequirementRef` selects an existing, node-local DeviceRequirement. Local
+names normalize to `cluster/<cluster>/node/<node>/requirement/device/<name>`;
+canonical references are also accepted. The referenced requirement must have
+`type: dpu`, an exact supported model, and effective count one (omitted or `1`).
+A reference cannot select an instance of a `count: 2` allocation; name two separate
+requirements instead. References to other nodes fail core ownership validation.
+`adapterGroup` and `deviceRequirementRef` are mutually exclusive.
 
-Allocation currently walks `requirements.devices` in authored order, expands each
-count in place, and assigns `dpu1`, `dpu2`, etc. using a node-local DPU counter.
-The private device plan retains only the generated name/model. There is **no path
-by which an attachment resolves to one of these allocated DPU components**.
+```yaml
+requirements:
+  devices:
+    - name: dataplane
+      type: dpu
+      constraints: {vendor: NVIDIA, model: ConnectX-7-100}
+networkAttachments:
+  - name: fabnet
+    networkRef: network/fabnet
+    deviceRequirementRef: dataplane
+    interfaceRequirements: {type: ethernet}
+  - name: data
+    networkRef: network/data
+    deviceRequirementRef: dataplane
+    interfaceRequirements: {type: ethernet}
+```
 
-The smallest provider-neutral gap is an explicit attachment-to-device-requirement
-reference, with unambiguous instance selection when `count > 1` (or a rule that
-only individually named, count-one requirements may be referenced). Field names,
-instance identity, and compatibility rules for references and adapter groups
-need a generic-model decision. Provider `dpuN` names must not become generic
-references. No new schema, implicit DPU selection, additional DPU allocation, or
-merging of independent requirements is introduced here.
+The allocation planner retains each normalized requirement ID alongside its
+original `dpuN`. Attachment resolution uses that ID to find exactly one planned
+DPU, and fails if it cannot. Both attachments above share one `pci.dpu.dpuN`;
+neither creates another DPU or a `pci.network` NIC. Separately named requirements
+with identical model/vendor selectors remain separate allocations. Unreferenced
+allocations, count expansion, and independent GPU/FPGA/NVMe numbering are preserved.
 
-User provisioning confirms FABNet capability for `NIC_ConnectX_7_100` and
-`NIC_ConnectX_7_400`; that provider capability does not resolve this modeling gap.
-DPU interface realization is stopped pending the explicit relationship. Existing
-allocation-only DPU behavior, including multiple independent requests and count
-expansion, is preserved. In historical `m5-complex.yml`, `node1.pci.dpu.dpu1`
-explicitly owns both `iface1` (FABNet `l3-1`) and `iface2` (L2STS `l2-1`); the
-downstream nesting supplies an association that the generic source cannot yet express.
+| Generic DPU model | FABRIC model | Maximum bound interfaces |
+| --- | --- | --- |
+| `ConnectX-7-100` | `NIC_ConnectX_7_100` | 2 |
+| `ConnectX-7-400` | `NIC_ConnectX_7_400` | 2 |
+
+`BlueField-2-ConnectX-6` remains allocation-only. The two ConnectX-7 limits come
+from the installed FIM 1.9.0 catalog's `p1`/`p2` interfaces, not from ARM-side or
+management interfaces. Optional interface adapter selectors must agree with the
+referenced requirement; an explicit vendor must be `NVIDIA`. Ethernet is required.
+Speed constraints and nonempty features remain unsupported; capabilities are not
+inferred from the model.
+
+Each supported DPU can bind one port, or bind two ports independently. Supported
+services are `L2Bridge`, `L2STS`, `IPv4`, `IPv6`, `IPv4Ext`, and `IPv6Ext` under the
+existing network restrictions. One FABNet port plus one L2STS port is supported.
+One FABNet port plus one L2Bridge port is supported when all L2Bridge endpoints
+map to one FABRIC site. Two L2 ports are also supported. **At most one FABNet
+NetworkAttachment per VM** is allowed across all NICs and DPUs, including repeated
+attachments to the same FABNet Network. FABNet still requires one mapped endpoint
+site, all endpoints in the selected Cluster, and omitted provider-managed address
+configuration. DPU PCI dedication does not confer L2PTP eligibility: L2PTP still
+requires `NIC_ConnectX_6` and its existing addressless/two-site restrictions.
+
+DPU component ordering follows authored device requirements, regardless of first
+attachment use. `iface1`/`iface2` follow authored attachment order within each DPU.
+Downstream `deployment.py` retrieves the component by its inner `name`, enumerates
+its interface dictionary, and binds entry index `i` to `get_interfaces()[i]`.
+The generated dictionary key matches the inner component name. Unused ports are
+omitted; there are no placeholder interfaces or generic physical-port selectors.
+Guest labels `ethN`/`conn-ethN` use the original node-wide attachment ordinal,
+including interleaved ordinary NICs, NIC groups, and other DPUs. DPU bindings do
+not consume `nicN` numbers. These labels do not assert the runtime OS device name;
+guest interface discovery and configuration remain downstream.
+
+The reviewed Pydantic `DPU` requires `name` and `model`, with `interfaces` defaulting
+to an empty dictionary. Each `Interface` requires `device` and `connection`, accepts
+`binding`, and defaults omitted IPv4/IPv6 configuration. Bound DPUs reuse the NIC
+interface renderer: FABNet emits `ipv4: {}` and `ipv6: {}`; addressless L2 omits IP
+blocks; authored L2 addresses use the existing prefix/gateway/DNS rules. No guest
+VLAN, management address, or dataplane address is invented. ARM OS, `tmfifo_net0`,
+RShim, BMC, bitstreams, FPGA activation/kernels, and guest IP configuration are
+outside this milestone. Generic FPGA device references fail explicitly in this
+provider until FPGA interface realization is implemented.
+
+Historical `dpu.yml` and `dpu4-7.yml` provide semantic references for ordered DPU
+interfaces, FABNet placeholders, and authored L2 addresses. Their experiment
+names and cross-site `L2Bridge` labels are not canonical: this adapter selects
+`L2STS` for two mapped endpoint sites. The previously reviewed successful
+`m5-complex.yml` also nests FABNet `l3-1` and L2STS `l2-1` under one DPU; that file
+was unavailable during C2.3b verification. Existing user provisioning evidence
+for both ConnectX-7 models supports this provider scope, but **live FABRIC
+acceptance of these generated configurations remains required**. Pydantic parsing
+and offline tests do not establish allocation, port availability, routing, or
+connectivity; no live APIs are invoked.
+
+Acceptance fixtures cover [100G + IPv4](../tests/fixtures/fabric-dpu-fabnet-ipv4.yaml),
+[400G + IPv6](../tests/fixtures/fabric-dpu-fabnet-ipv6.yaml),
+[IPv4 + L2STS](../tests/fixtures/fabric-dpu-fabnet-l2sts.yaml),
+[IPv4Ext + L2Bridge](../tests/fixtures/fabric-dpu-fabnet-l2bridge.yaml), and
+[two identical DPUs with four attachments](../tests/fixtures/fabric-dpu-two-devices.yaml).
+All use the existing adapter config. The focused tests also exercise all four
+FABNet services with both models and both port orders, mixed NIC/DPU attachments,
+explicit rejection paths, deterministic CLI bytes, and downstream Pydantic parsing.
+Set `FABRIC_MODEL_PYTHON` to an interpreter with fabric-generic-cluster installed
+for the parser test; by default it checks the test interpreter's base Python.
 
 ## Dedicated ConnectX-5, ConnectX-6, and adapter groups
 
@@ -391,7 +468,8 @@ or exactly `NVIDIA`, resolve to `NIC_ConnectX_5` and `NIC_ConnectX_6`, respectiv
 This is adapter capability resolution, not an external identity mapping; there is no `nicModels`
 configuration field. FABRIC component names stay out of the generic core schema.
 The existing core schema requires `class` whenever an adapter selector is present;
-this resolver accepts `standard` and rejects SmartNIC, DPU, and other classes.
+the ordinary NIC resolver accepts `standard`. DPU class selectors are supported
+only through the explicit device-reference path above; other classes fail.
 
 For a single ConnectX-5 attachment, the exact selector is:
 
@@ -448,8 +526,8 @@ dedicated component.
 Matching is exact. Incompatible vendors, vendor-only selection, ConnectX-7,
 aliases, fuzzy spellings, and other models fail. A model identity does not prove requested speed
 or features: `minSpeed`, RDMA, SR-IOV, and other nonempty feature requirements
-remain unsupported on every group member. Automatic model selection, SmartNIC,
-DPU interfaces, port availability scheduling, and live inventory remain out of scope.
+remain unsupported on every group member. Automatic model selection, unreferenced
+DPU interface selection, port availability scheduling, and live inventory remain out of scope.
 
 > The generic model describes WHAT network capability is required; the FABRIC
 > adapter decides HOW that capability is realized.
@@ -466,7 +544,7 @@ resolved `NIC_ConnectX_6` interfaces; ConnectX-5 does not qualify.
 Component numbers follow first creation across both dedicated models and
 `NIC_Basic`. Guest `ethN`/`conn-ethN` names follow original attachment order,
 including interleaved groups. Plain Ethernet without a dedicated selector or
-adapterGroup continues to use implicit `NIC_Basic`.
+adapterGroup or deviceRequirementRef continues to use implicit `NIC_Basic`.
 
 ConnectX-5 compatibility was verified against fabric-generic-cluster **1.0.20**,
 FABlib/fabrictestbed-extensions **1.9.5**, fabrictestbed **1.9.0**, and FIM **1.9.0**.
@@ -492,10 +570,10 @@ selected Cluster's endpoints, even when other Clusters use the same Network.
 | Layer2 multipoint with more than two effective endpoint sites | Translation error |
 | Explicit layer2, point-to-point, exactly two complete dedicated endpoints at exactly two effective FABRIC sites, no L3 configuration | `L2PTP` |
 | Other point-to-point combinations | Translation error; no downgrade to a multipoint service |
-| Layer3, IPv4, provider-managed, provider-internal, multipoint, one mapped endpoint site, supported FABNet NIC | `IPv4` (FABNetv4) |
-| Layer3, IPv6, provider-managed, provider-internal, multipoint, one mapped endpoint site, supported FABNet NIC | `IPv6` (FABNetv6) |
-| Layer3, IPv4, provider-managed, public, multipoint, one mapped endpoint site, supported FABNet NIC | `IPv4Ext` (FABNetv4Ext) |
-| Layer3, IPv6, provider-managed, public, multipoint, one mapped endpoint site, supported FABNet NIC | `IPv6Ext` (FABNetv6Ext) |
+| Layer3, IPv4, provider-managed, provider-internal, multipoint, one mapped endpoint site, supported FABNet NIC or DPU | `IPv4` (FABNetv4) |
+| Layer3, IPv6, provider-managed, provider-internal, multipoint, one mapped endpoint site, supported FABNet NIC or DPU | `IPv6` (FABNetv6) |
+| Layer3, IPv4, provider-managed, public, multipoint, one mapped endpoint site, supported FABNet NIC or DPU | `IPv4Ext` (FABNetv4Ext) |
+| Layer3, IPv6, provider-managed, public, multipoint, one mapped endpoint site, supported FABNet NIC or DPU | `IPv6Ext` (FABNetv6Ext) |
 | Partial/unsupported Layer3 intent or unspecified layer | Translation error |
 
 `Network.siteRefs` declares allowed scope, already enforced by core validation.
@@ -522,7 +600,8 @@ A selected point-to-point Network with one endpoint still fails provider
 eligibility. Multipoint selection is unchanged.
 
 Both endpoint interfaces must belong to resolved `NIC_ConnectX_6` components.
-Neither NIC_Basic nor NIC_ConnectX_5 qualifies, and plain Ethernet is never upgraded automatically.
+NIC_Basic, NIC_ConnectX_5, and both ConnectX-7 DPU models do not qualify; plain
+Ethernet is never upgraded automatically.
 An endpoint may be one port of a grouped component whose other port serves a
 different Network. Its dedicated identity may come from a compatible selector
 on another group member. Counts always use NetworkAttachments referencing this
@@ -600,11 +679,11 @@ tunnels, routes, or Networks. There is no exactly-two-endpoint requirement.
 
 The following adapter restrictions apply to all four services:
 
-- Every FABNet attachment must resolve to `NIC_Basic`, `NIC_ConnectX_5`, or
-  `NIC_ConnectX_6` through the existing component resolver. Dedicated NICs retain
-  adapterGroup sharing, two-port limits, and deterministic component/interface
-  naming. DPU bindings await the explicit generic relationship described above;
-  FPGA bindings remain outside this feature. Allocation-only devices are unchanged.
+- Every FABNet attachment must resolve to `NIC_Basic`, `NIC_ConnectX_5`,
+  `NIC_ConnectX_6`, `NIC_ConnectX_7_100`, or `NIC_ConnectX_7_400`. Dedicated NICs
+  retain adapterGroup sharing. DPU bindings use an existing allocation selected
+  by `deviceRequirementRef`. Both retain two-port limits and deterministic
+  naming. FPGA bindings remain deferred; allocation-only devices are unchanged.
 - At most one FABNet attachment per VM, including repeated attachments to the
   same Network. Other eligible L2 attachments may coexist. This reflects the
   reviewed workflow's first-matching-interface selection and persistent route
@@ -759,7 +838,8 @@ Output contains `site_topology_nodes.nodes`, `site_topology_networks.networks`,
 and `site_topology_facility_ports.facility_ports: {}`. Nodes use `nodeN` keys in
 Cluster order and Networks use `netN` keys in first-attachment-use order. Network
 entries retain the generic name; interface `binding` uses that name, never `netN`.
-Component keys/names (`nic1`, `nic2`, …) follow first-creation order: each ungrouped
+Ordinary NIC component keys/names (`nic1`, `nic2`, …) follow first-creation order,
+independently of DPU allocations: each ungrouped
 attachment or first occurrence of a group creates one component, and later group
 members append to it. `iface1`/`iface2` follow attachment order within that component.
 A small renderer policy uses each interface's original node-global attachment
@@ -824,7 +904,8 @@ for one VM with ordinary Ethernet management and two independent `ConnectX-7-100
 DPU allocations. It renders `dpu1` and `dpu2` without DPU interfaces or live
 hardware requirements, and stays outside recursive examples.
 
-Live FABRIC operations, facility ports, L2PTP guest VLAN/IP configuration, other dedicated NIC models, DPU interface/unsupported device rendering,
+Live FABRIC operations, facility ports, L2PTP guest VLAN/IP configuration, other dedicated NIC models,
+FPGA bindings and unsupported device rendering,
 public-routing activation, runtime address allocation, DHCP, Ansible, postboot, SELinux,
 and filesystem/mount rendering remain outside this increment.
 

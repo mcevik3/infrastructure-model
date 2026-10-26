@@ -53,6 +53,8 @@ class _FabricNetworkComponentPlan:
 class _FabricDevicePlan:
     name: str
     model: str
+    requirement_id: str
+    interfaces: tuple[_FabricInterfacePlan, ...] = ()
 
 
 @dataclass(frozen=True)

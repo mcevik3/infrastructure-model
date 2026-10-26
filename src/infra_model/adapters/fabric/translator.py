@@ -1,7 +1,7 @@
 """Offline provider reasoning and representability checks for one Cluster."""
 
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from fractions import Fraction
 import ipaddress
 
@@ -34,12 +34,16 @@ _DEDICATED_NIC_MODELS = {"ConnectX-5": "NIC_ConnectX_5", "ConnectX-6": "NIC_Conn
 # Verified FABNet component support; switch encapsulation does not require
 # guest VLAN subinterfaces for these PCI-passthrough NIC configurations.
 _FABNET_NIC_MODELS = {"NIC_Basic", "NIC_ConnectX_5", "NIC_ConnectX_6"}
+# FIM 1.9.0 component_catalog.json defines two dataplane ports for each model.
+# This is independent of allocation-only support and L2PTP eligibility.
+_DPU_INTERFACE_PORTS = {"NIC_ConnectX_7_100": 2, "NIC_ConnectX_7_400": 2}
 
 
 @dataclass(frozen=True)
 class _ComponentRealization:
     model: str
     members: tuple[tuple[int, Entry], ...]
+    device: _FabricDevicePlan | None = None
 
 
 @dataclass(frozen=True)
@@ -110,7 +114,7 @@ def _devices(node: Entry, registry: Registry) -> dict[str, tuple[_FabricDevicePl
         family = "nvme" if required["type"] == "storage" else required["type"]
         devices = families[family]
         for _ in range(required.get("count", 1)):
-            devices.append(_FabricDevicePlan(f"{family}{len(devices) + 1}", model))
+            devices.append(_FabricDevicePlan(f"{family}{len(devices) + 1}", model, required["id"]))
     return {family: tuple(devices) for family, devices in families.items()}
 
 
@@ -133,9 +137,9 @@ def _fabnet(entry: Entry, endpoints: list[_EndpointRealization], selected_cluste
     if len(sites) != 1:
         _fail(entry, "/spec", f"FABNet requires exactly one distinct effective FABRIC endpoint site; found {len(sites)}")
     for endpoint in endpoints:
-        if endpoint.component.model not in _FABNET_NIC_MODELS:
+        if endpoint.component.model not in _FABNET_NIC_MODELS | _DPU_INTERFACE_PORTS.keys():
             _fail(endpoint.attachment, "/interfaceRequirements",
-                  f"FABNet requires a supported NIC ({', '.join(sorted(_FABNET_NIC_MODELS))}); resolved {endpoint.component.model}")
+                  f"FABNet requires a supported NIC or DPU; resolved {endpoint.component.model}")
         if "addresses" in endpoint.attachment.data:
             _fail(endpoint.attachment, "/addresses", "FABNet requires attachment addresses to be omitted, including empty lists")
     for field in ("prefixes", "defaultGateways", "dns"):
@@ -208,19 +212,24 @@ def _network(entry: Entry, endpoints: list[_EndpointRealization], selected_clust
     return _FabricNetworkPlan(entry.data["metadata"]["name"], service, tuple(prefixes), gateways, dns)
 
 
+def _interface_requirements(attachment: Entry) -> dict:
+    required = attachment.data.get("interfaceRequirements")
+    if required is None or required.get("type") != "ethernet":
+        _fail(attachment, "/interfaceRequirements", "an explicit Ethernet interface requirement is required")
+    if "minSpeed" in required:
+        _fail(attachment, "/interfaceRequirements/minSpeed", "minSpeed interface requirements remain unsupported")
+    # An empty feature list adds no constraint, as with plain Ethernet.
+    if required.get("features"):
+        _fail(attachment, "/interfaceRequirements/features", "feature interface requirements remain unsupported")
+    return required
+
+
 def _component_model(members: list[tuple[int, Entry]]) -> str:
     """Resolve compatible identity selectors, never infer capability from a model."""
     selectors: dict[str, str] = {}
     owners: dict[str, Entry] = {}
     for _, attachment in members:
-        required = attachment.data.get("interfaceRequirements")
-        if required is None or required.get("type") != "ethernet":
-            _fail(attachment, "/interfaceRequirements", "an explicit Ethernet interface requirement is required")
-        if "minSpeed" in required:
-            _fail(attachment, "/interfaceRequirements/minSpeed", "minSpeed interface requirements remain unsupported")
-        # An empty feature list adds no constraint, as with plain Ethernet.
-        if required.get("features"):
-            _fail(attachment, "/interfaceRequirements/features", "feature interface requirements remain unsupported")
+        required = _interface_requirements(attachment)
         adapter = required.get("adapter", {})
         if "class" in adapter and adapter["class"] != "standard":
             _fail(attachment, "/interfaceRequirements/adapter/class", "only standard adapter class interface requirements are supported")
@@ -247,20 +256,61 @@ def _component_model(members: list[tuple[int, Entry]]) -> str:
     return model
 
 
-def _resolve_components(node: Entry, registry: Registry) -> tuple[_ComponentRealization, ...]:
+def _dpu_component(node: Entry, registry: Registry, members: list[tuple[int, Entry]],
+                   dpus: tuple[_FabricDevicePlan, ...]) -> _ComponentRealization:
+    first = members[0][1]
+    reference = first.data["deviceRequirementRef"]
+    required = registry.entries.get(reference)
+    path = "/deviceRequirementRef"
+    if required is None or required.kind != "DeviceRequirement" or required.parent != node.id:
+        _fail(first, path, f"{reference} must resolve to a node-local DeviceRequirement")
+    if required.data["type"] != "dpu":
+        _fail(first, path, f"FABRIC {required.data['type']}-backed NetworkAttachments are an unsupported provider realization")
+    if required.data.get("count", 1) != 1:
+        _fail(first, path, f"{reference} must have effective count one for DPU interface realization")
+    allocated = [device for device in dpus if device.requirement_id == reference]
+    if len(allocated) != 1:
+        _fail(first, path, f"cannot realize {reference}: expected one already-planned FABRIC DPU component; found {len(allocated)}")
+    device = allocated[0]
+    if device.model not in _DPU_INTERFACE_PORTS:
+        _fail(first, path, f"unsupported FABRIC DPU network-interface realization for {device.model}; "
+              f"supported models: {', '.join(_DPU_INTERFACE_PORTS)}")
+    if len(members) > _DPU_INTERFACE_PORTS[device.model]:
+        _fail(first, path, f"{reference} has {len(members)} attachments; FABRIC {device.model} supports at most two interfaces")
+    for _, attachment in members:
+        adapter = _interface_requirements(attachment).get("adapter", {})
+        if "vendor" in adapter and adapter["vendor"] != "NVIDIA":
+            _fail(attachment, "/interfaceRequirements/adapter/vendor", "DPU interface requirements support only exact vendor NVIDIA")
+    return _ComponentRealization(device.model, tuple(members), device)
+
+
+def _resolve_components(node: Entry, registry: Registry,
+                        dpus: tuple[_FabricDevicePlan, ...]) -> tuple[_ComponentRealization, ...]:
     """Collect node-local groups in first-use order before resolving their intent."""
     components: list[list[tuple[int, Entry]]] = []
-    groups: dict[str, int] = {}
+    groups: dict[tuple[str, str], int] = {}
     for ordinal, data in enumerate(node.data.get("networkAttachments", []), 1):
         member = (ordinal, registry.entries[data["id"]])
-        group = data.get("adapterGroup")
+        if "deviceRequirementRef" in data:
+            group = ("device", data["deviceRequirementRef"])
+        elif "adapterGroup" in data:
+            group = ("adapter", data["adapterGroup"])
+        else:
+            group = None
         if group is not None and group in groups:
             components[groups[group]].append(member)
         else:
             if group is not None:
                 groups[group] = len(components)
             components.append([member])
-    return tuple(_ComponentRealization(_component_model(members), tuple(members)) for members in components)
+    return tuple(_dpu_component(node, registry, members, dpus) if "deviceRequirementRef" in members[0][1].data
+                 else _ComponentRealization(_component_model(members), tuple(members)) for members in components)
+
+
+def _component_interfaces(component: _ComponentRealization,
+                          networks: dict[str, _FabricNetworkPlan]) -> tuple[_FabricInterfacePlan, ...]:
+    return tuple(_interface(attachment, networks[attachment.data["networkRef"]], ordinal)
+                 for ordinal, attachment in component.members)
 
 
 def _components(realizations: tuple[_ComponentRealization, ...],
@@ -269,10 +319,9 @@ def _components(realizations: tuple[_ComponentRealization, ...],
     return tuple(
         _FabricNetworkComponentPlan(
             component.model,
-            tuple(_interface(attachment, networks[attachment.data["networkRef"]], ordinal)
-                  for ordinal, attachment in component.members),
+            _component_interfaces(component, networks),
         )
-        for component in realizations
+        for component in realizations if component.device is None
     )
 
 
@@ -326,6 +375,7 @@ def _translate(model: InfrastructureModel, *, cluster: str | None, config: Fabri
     nodes = [registry.entries[node["id"]] for node in spec["nodes"]]
     sites = {}
     node_components: dict[str, tuple[_ComponentRealization, ...]] = {}
+    node_devices: dict[str, dict[str, tuple[_FabricDevicePlan, ...]]] = {}
     network_endpoints: dict[str, list[_EndpointRealization]] = {}
     global_endpoint_counts = Counter(attachment.data["networkRef"] for attachment in registry.of_kind("NetworkAttachment"))
     for node in nodes:
@@ -339,7 +389,14 @@ def _translate(model: InfrastructureModel, *, cluster: str | None, config: Fabri
         if generic_site not in config.sites:
             _fail(node, "/placement/siteRef", f"no adapter site mapping for {generic_site}")
         sites[node.id] = config.sites[generic_site]
-        node_components[node.id] = _resolve_components(node, registry)
+        # Reject the provider boundary even when an FPGA has no allocatable model.
+        for data in node.data.get("networkAttachments", []):
+            reference = data.get("deviceRequirementRef")
+            if reference is not None and registry.entries[reference].data["type"] == "fpga":
+                _fail(registry.entries[data["id"]], "/deviceRequirementRef",
+                      "FABRIC FPGA-backed NetworkAttachments are an unsupported provider realization; FPGA bindings are deferred")
+        node_devices[node.id] = _devices(node, registry)
+        node_components[node.id] = _resolve_components(node, registry, node_devices[node.id]["dpu"])
         component_by_attachment = {attachment.id: component for component in node_components[node.id]
                                    for _, attachment in component.members}
         # Network first use follows authored attachments, even for interleaved groups.
@@ -356,7 +413,7 @@ def _translate(model: InfrastructureModel, *, cluster: str | None, config: Fabri
         if len(fabnet_attachments) > 1:
             _fail(node, "/networkAttachments",
                   "at most one FABNet attachment per VM is supported by the downstream guest interface/routing workflow")
-        devices = _devices(node, registry)
+        devices = node_devices[node.id]
         cpu, ram, disk = _node_capacity(node)
         image = node.data.get("image", spec.get("image"))
         image_path = "/image" if "image" in node.data else "/spec/image"
@@ -377,7 +434,12 @@ def _translate(model: InfrastructureModel, *, cluster: str | None, config: Fabri
                 _fail(node, "/placement/hostRef", f"no adapter worker mapping for {host_ref}")
             worker = config.workers[host_ref]
         components = _components(node_components[node.id], networks)
+        dpu_interfaces = {component.device.requirement_id: _component_interfaces(component, networks)
+                          for component in node_components[node.id] if component.device is not None}
+        # Enrich existing allocations only: attachment order never allocates or renumbers devices.
+        dpus = tuple(replace(device, interfaces=dpu_interfaces.get(device.requirement_id, ()))
+                     for device in devices["dpu"])
         plans.append(_FabricNodePlan(node.data["name"], sites[node.id], cpu, ram, disk, config.images[identity],
                                      tuple(role.removeprefix("openstack.") for role in roles), components, worker=worker,
-                                     gpus=devices["gpu"], fpgas=devices["fpga"], nvmes=devices["nvme"], dpus=devices["dpu"]))
+                                     gpus=devices["gpu"], fpgas=devices["fpga"], nvmes=devices["nvme"], dpus=dpus))
     return _FabricRenderPlan(tuple(plans), tuple(networks.values()))

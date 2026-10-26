@@ -1,0 +1,63 @@
+apiVersion: infra.model/v0alpha1
+kind: Site
+metadata:
+  name: site-a
+spec: {}
+---
+apiVersion: infra.model/v0alpha1
+kind: Site
+metadata:
+  name: site-b
+spec: {}
+---
+apiVersion: infra.model/v0alpha1
+kind: Network
+metadata:
+  name: fabnet
+spec:
+  layer: layer3
+  addressFamily: ipv4
+  addressAllocation: provider-managed
+  reachability: provider-internal
+  siteRefs:
+  - site/site-a
+---
+apiVersion: infra.model/v0alpha1
+kind: Cluster
+metadata:
+  name: fabric-dpu-fabnet-ipv4
+spec:
+  image:
+    name: Rocky Linux
+    version: '9'
+  nodes:
+  - name: vm-a
+    realization:
+      type: vm
+    placement:
+      siteRef: site/site-a
+    requirements:
+      compute:
+        cpu:
+          count: 2
+          unit: vcpu
+      memory:
+        capacity:
+          value: 4
+          unit: GiB
+      storage:
+        capacity:
+          value: 20
+          unit: GiB
+      devices:
+      - name: primary
+        type: dpu
+        constraints:
+          vendor: NVIDIA
+          model: ConnectX-7-100
+    networkAttachments:
+    - name: fabnet
+      networkRef: network/fabnet
+      deviceRequirementRef: primary
+      interfaceRequirements:
+        type: ethernet
