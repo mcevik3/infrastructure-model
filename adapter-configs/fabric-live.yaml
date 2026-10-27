@@ -1,0 +1,71 @@
+apiVersion: infra.model.fabric/v0alpha1
+kind: FabricAdapterConfig
+sites:
+  site/lab-site: SRI
+  site/site-a: SRI
+  site/site-b: UKY
+  site/renc: RENC
+  site/uky: UKY
+  site/lbnl: LBNL
+  site/star: STAR
+  site/max: MAX
+  site/tacc: TACC
+  site/mich: MICH
+  site/mass: MASS
+  site/utah: UTAH
+  site/ncsa: NCSA
+  site/wash: WASH
+  site/dall: DALL
+  site/salt: SALT
+  site/ucsd: UCSD
+  site/gpn: GPN
+  site/fiu: FIU
+  site/clem: CLEM
+  site/gatech: GATECH
+  site/losa: LOSA
+  site/newy: NEWY
+  site/kans: KANS
+  site/atla: ATLA
+  site/seat: SEAT
+  site/prin: PRIN
+  site/indi: INDI
+  site/psc: PSC
+  site/rutg: RUTG
+  site/sri: SRI
+  site/cern: CERN
+  site/amst: AMST
+  site/brist: BRIST
+  site/toky: TOKY
+  site/hawi: HAWI
+  site/eduky: EDUKY
+  site/cien: CIEN
+  site/cape: CAPE
+images:
+  - name: Rocky Linux
+    version: "9"
+    fabricImage: default_rocky_9
+  - name: Rocky Linux
+    version: "10"
+    fabricImage: default_rocky_10
+  - name: Ubuntu
+    version: "20"
+    fabricImage: default_ubuntu_20
+  - name: Ubuntu
+    version: "22"
+    fabricImage: default_ubuntu_22
+  - name: Ubuntu
+    version: "24"
+    fabricImage: default_ubuntu_24
+  - name: Ubuntu
+    version: "26"
+    fabricImage: default_ubuntu_26
+  - name: Debian
+    version: "11"
+    fabricImage: default_debian_11
+  - name: Debian
+    version: "12"
+    fabricImage: default_debian_12
+  - name: Debian
+    version: "13"
+    fabricImage: default_debian_13
+
