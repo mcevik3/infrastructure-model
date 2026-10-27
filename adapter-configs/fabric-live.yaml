@@ -68,4 +68,3 @@ images:
   - name: Debian
     version: "13"
     fabricImage: default_debian_13
-
