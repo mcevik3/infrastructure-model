@@ -1,0 +1,80 @@
+apiVersion: infra.model/v0alpha1
+kind: Site
+metadata:
+  name: lab-site
+spec: {}
+---
+apiVersion: infra.model/v0alpha1
+kind: Network
+metadata:
+  name: management
+spec:
+  layer: layer2
+  siteRefs:
+  - site/lab-site
+---
+apiVersion: infra.model/v0alpha1
+kind: Cluster
+metadata:
+  name: fabric-fpga-allocation-only
+spec:
+  siteRef: site/lab-site
+  image:
+    name: Rocky Linux
+    version: '9'
+  nodes:
+  - name: vm-a
+    realization:
+      type: vm
+    requirements:
+      compute:
+        architecture: x86_64
+        cpu:
+          count: 2
+          unit: vcpu
+      memory:
+        capacity:
+          value: 4
+          unit: GiB
+      storage:
+        capacity:
+          value: 20
+          unit: GiB
+      devices:
+      - name: accelerators
+        type: gpu
+        count: 2
+        constraints:
+          vendor: NVIDIA
+          model: A40
+      - name: fpga
+        type: fpga
+        constraints:
+          vendor: AMD
+          model: Alveo U280
+      - name: local-nvme
+        type: storage
+        constraints:
+          protocol: nvme
+          vendor: Intel
+          model: P4510
+      - name: second-fpga
+        type: fpga
+        count: 2
+        constraints:
+          vendor: Xilinx
+          model: SN1022
+      - name: dpu
+        type: dpu
+        constraints:
+          model: ConnectX-7-100
+      - name: last-fpga
+        type: fpga
+        count: 1
+        constraints:
+          model: U280
+    networkAttachments:
+    - name: management
+      networkRef: network/management
+      interfaceRequirements:
+        type: ethernet

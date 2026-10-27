@@ -2,6 +2,65 @@
 
 This document records the targeted architecture-review corrections for v0alpha1.
 
+## C3.2: offline FPGA attachment binding by allocation identity
+
+C3.2 implements the approved C3.1 read-only investigation on top of C2.3a's
+provider-neutral `deviceRequirementRef` contract and C2.3b's DPU allocation
+identity principle. This supersedes the historical FPGA-binding deferrals below.
+Only the FABRIC translator changes in implementation: the existing schema,
+registry, validator, graph, private plan, shared device-interface renderer, and
+adapter configuration already express the required behavior.
+
+A local reference normalizes to a canonical same-node DeviceRequirement ID with
+effective count one. A small shared lookup requires exactly one already-planned
+device with that ID; missing/ambiguous allocations fail explicitly without model
+matching or new allocation. FPGA and DPU model/vendor/endpoint policies stay
+separate. Two references share a component, while two named identical-model
+requirements remain distinct. `fpgaN` follows device allocation order, `ifaceN`
+follows attachment order within the FPGA, and `ethN`/`conn-ethN` preserve original
+node-wide attachment order. Other family counters and count expansion are unchanged.
+Unused endpoints have no placeholder interfaces. Unbound FPGAs continue to omit
+`interfaces`, verified against a golden captured before implementation from
+committed revision `0bb7149e07c858c60ea83d487c826f36c79199fb`.
+
+Exact generic selectors `U280` / existing alias `Alveo U280` and `SN1022` map to
+`FPGA_Xilinx_U280` and `FPGA_Xilinx_SN1022`. Vendors remain omitted, `AMD`, or
+`Xilinx`; no new aliases or string normalization are introduced. Ethernet is
+required. All explicit adapter classes, contradictory model/vendor selectors,
+speed constraints, nonempty features, and more than two bound interfaces fail.
+The generic adapter block requires a class; FPGA attachments therefore omit it
+and put model/vendor intent on the referenced device.
+
+The inspected FIM 1.9.0 catalog exposes two provider network endpoints per model.
+Those are allocation/binding capabilities, not guarantees of two operational FPGA
+datapaths. `L2Bridge`, `L2STS`, `IPv4`, `IPv6`, `IPv4Ext`, and `IPv6Ext` are offline
+provider-representable combinations requiring separate live acceptance. Existing
+NetworkService selection and addressing rules remain intact, including at most
+one FABNet attachment per VM across FPGA/DPU/NIC families. FPGA L2PTP is rejected;
+L2PTP retains ConnectX-6-only, two-site, two-endpoint, addressless eligibility.
+Addressless L2 stays addressless; authored L2 addressing is preserved; no fabricated
+addresses or guest VLAN configuration is introduced.
+
+The reviewed downstream binding loop assigns mapping entry `i` to provider
+`get_interfaces()[i]`. `iface1`/`iface2` are logical positional bindings, with no
+guaranteed `p1`/`p2` correspondence and no physical-port selector. Offline tests
+parse generated YAML using installed downstream Pydantic models and exercise the
+inspected allocation/binding functions with test doubles, including reversed
+provider enumeration. This is not evidence of live FPGA dataplane operation.
+SN1022 second-port dataplane behavior remains uncertain, and its downstream
+host-discovery caveat remains. Deployment can log/skip component or binding
+failures; live acceptance must inspect actual components and NetworkService
+interface memberships, even after a nominally successful submission.
+
+No FPGA bitstream installation/programming, MAC/packet-processing pipeline,
+driver/kernel-module installation, ARM management, guest OS interface discovery,
+guest IP configuration, persistent routes/VLANs, public-routing activation,
+forwarding, or throughput tests are implemented. C2.4.5's two-DPU live acceptance
+remains hardware-blocked and partially verified. C3.2 adds no live evidence and
+changes neither that status nor downstream repositories. See the
+[adapter contract](fabric-adapter.md#fpga-backed-networkattachments-c32) and
+[manual acceptance guidance](../tests/manual/fabric/README.md#fpga-binding-acceptance-c32).
+
 ## FABNet dedicated interfaces and DPU association boundary
 
 User-verified FABRIC provisioning establishes FABNet capability for ConnectX-5,

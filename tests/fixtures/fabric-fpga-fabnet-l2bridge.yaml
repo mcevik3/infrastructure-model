@@ -1,0 +1,119 @@
+apiVersion: infra.model/v0alpha1
+kind: Site
+metadata:
+  name: site-a
+spec: {}
+---
+apiVersion: infra.model/v0alpha1
+kind: Site
+metadata:
+  name: site-b
+spec: {}
+---
+apiVersion: infra.model/v0alpha1
+kind: Network
+metadata:
+  name: fabnet
+spec:
+  layer: layer3
+  addressFamily: ipv4
+  addressAllocation: provider-managed
+  reachability: public
+  siteRefs:
+  - site/site-a
+---
+apiVersion: infra.model/v0alpha1
+kind: Network
+metadata:
+  name: data
+spec:
+  layer: layer2
+  siteRefs:
+  - site/site-a
+  prefixes:
+  - 192.0.2.0/24
+  - 2001:db8:1::/64
+  defaultGateways:
+  - prefix: 192.0.2.0/24
+    address: 192.0.2.1
+  - prefix: 2001:db8:1::/64
+    address: 2001:db8:1::1
+  dns:
+    servers:
+    - 192.0.2.53
+    - 2001:db8:1::53
+---
+apiVersion: infra.model/v0alpha1
+kind: Cluster
+metadata:
+  name: fabric-fpga-fabnet-l2bridge
+spec:
+  image:
+    name: Rocky Linux
+    version: '9'
+  nodes:
+  - name: vm-a
+    realization:
+      type: vm
+    placement:
+      siteRef: site/site-a
+    requirements:
+      compute:
+        cpu:
+          count: 2
+          unit: vcpu
+      memory:
+        capacity:
+          value: 4
+          unit: GiB
+      storage:
+        capacity:
+          value: 20
+          unit: GiB
+      devices:
+      - name: primary
+        type: fpga
+        constraints:
+          vendor: Xilinx
+          model: SN1022
+    networkAttachments:
+    - name: fabnet
+      networkRef: network/fabnet
+      deviceRequirementRef: primary
+      interfaceRequirements:
+        type: ethernet
+    - name: data
+      networkRef: network/data
+      deviceRequirementRef: primary
+      interfaceRequirements:
+        type: ethernet
+      addresses:
+      - 192.0.2.10
+      - 2001:db8:1::10
+  - name: peer
+    realization:
+      type: vm
+    placement:
+      siteRef: site/site-a
+    requirements:
+      compute:
+        cpu:
+          count: 2
+          unit: vcpu
+      memory:
+        capacity:
+          value: 4
+          unit: GiB
+      storage:
+        capacity:
+          value: 20
+          unit: GiB
+      devices: []
+    networkAttachments:
+    - name: data
+      networkRef: network/data
+      interfaceRequirements:
+        type: ethernet
+      addresses:
+      - 192.0.2.11
+      - 2001:db8:1::11

@@ -211,16 +211,19 @@ def test_excess_ports_fail_at_reference(source, config, model):
     assert caught.value.path == "/spec/nodes/0/networkAttachments/0/deviceRequirementRef"
 
 
-@pytest.mark.parametrize("model", [None, "U280", "SN1022"])
-@pytest.mark.parametrize("interface_type", ["ethernet", "infiniband"])
-def test_fpga_bindings_fail_explicitly_even_without_model(source, config, model, interface_type):
+@pytest.mark.parametrize("model,interface_type,reason,path", [
+    (None, "ethernet", "exact supported model", "/constraints/model"),
+    ("U280", "infiniband", "explicit Ethernet", "/interfaceRequirements"),
+    ("SN1022", "infiniband", "explicit Ethernet", "/interfaceRequirements"),
+])
+def test_fpga_bindings_reject_missing_model_or_non_ethernet(source, config, model, interface_type, reason, path):
     node(source)["requirements"]["devices"] = [requirement("fpga", model, name="primary")]
     for a in node(source)["networkAttachments"]:
         a["interfaceRequirements"]["type"] = interface_type
     InfrastructureModel.from_documents(source).validate()
-    with pytest.raises(FabricTranslationError, match="FPGA-backed.*unsupported provider realization") as caught:
+    with pytest.raises(FabricTranslationError, match=reason) as caught:
         render(source, config)
-    assert caught.value.path.endswith("/deviceRequirementRef")
+    assert caught.value.path.endswith(path)
 
 
 @pytest.mark.parametrize("second_kind", ["same-dpu", "other-dpu", "basic", "dedicated"])
@@ -313,7 +316,7 @@ def test_invalid_translation_emits_no_partial_yaml(source, tmp_path, capsys, inv
     if invalid == "ports":
         attachments.append(dict(deepcopy(attachments[1]), name="third", addresses=[]))
     elif invalid == "fpga":
-        node(source)["requirements"]["devices"] = [requirement("fpga", "U280", name="primary")]
+        node(source)["requirements"]["devices"] = [requirement("fpga", "U250", name="primary")]
     elif invalid == "fabnet":
         attachments[1] = dict(deepcopy(attachments[0]), name="second")
     else:

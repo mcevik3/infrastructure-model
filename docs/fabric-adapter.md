@@ -15,6 +15,9 @@ exact supported GPU, FPGA, and NVMe models with generic count expansion.
 Independent DPU requests support allocation with optional explicit interface bindings.
 C2.3b uses the generic `deviceRequirementRef` relationship to attach networks to
 existing ConnectX-7-100/400 DPU allocations.
+C3.2 also binds networks to existing U280/SN1022 FPGA allocations, using the
+approved C3.1 read-only investigation as its baseline. FPGA support here means
+offline allocation and NetworkService representation; live acceptance is separate.
 Phase A adds internal IPv4/IPv6 FABNet from explicit provider-neutral Layer-3 intent.
 Phase B1 adds external IPv4/IPv6 FABNet for explicit `reachability: public`,
 preserving internal service selection and the same site-local restrictions.
@@ -74,8 +77,8 @@ Private frozen device records contain generated `name`, resolved `model`, the
 canonical `requirement_id`, and an interface tuple. These records are held in the
 node plan's `gpus`, `fpgas`, `nvmes`, and `dpus` tuples. The translator resolves
 each device request and expands its count; the renderer only serializes those
-records. DPU references resolve against those already-planned records before
-service selection. Finalizing DPU interfaces preserves the allocated name/model
+records. DPU and FPGA references resolve against those already-planned records before
+service selection. Finalizing device interfaces preserves the allocated name/model
 and requirement ID; it creates no additional device records. Ordinary network
 components retain their separate NIC allocation path.
 The Network flag `emit_empty_subnet` and interface flag
@@ -259,19 +262,105 @@ pci:
       model: GPU_A40
 ```
 
-FPGA rendering allocates the component only; it omits the optional downstream
-`interfaces` field. A generic FPGA `deviceRequirementRef` is valid core intent,
-but the FABRIC translator rejects that attachment explicitly as an unsupported
-provider realization. It never emits an unbound FPGA topology. Allocation-only
-FPGA behavior is unchanged.
+FPGA allocations without referenced NetworkAttachments still omit `interfaces`;
+count expansion and allocation-only output remain byte-compatible. C3.2 adds
+optional bindings to those same allocated components, as described below.
 
-FPGA interface allocation and binding to NetworkServices are separate from
-bitstream loading and hardware activation. A link-down state before activation
-is not by itself a provisioning failure. FPGA network bindings are outside this
-adapter feature; they do not inherently require IP assignment. No FPGA attachment
-IP requirements or downstream bitstream, activation, or guest configuration
-workflows are added. The FPGA bindings in historical `m5-complex.yml` illustrate
-topology intent, not complete FPGA guest configuration support.
+### FPGA-backed NetworkAttachments (C3.2)
+
+An attachment's `deviceRequirementRef` names an existing same-node FPGA
+DeviceRequirement, locally or by canonical ID. Its effective count must be one
+(omitted or explicit `count: 1`). The translator finds exactly one already-planned
+`_FabricDevicePlan` by canonical requirement identity. Missing or ambiguous
+allocations fail explicitly. Model equality never substitutes for identity.
+Two attachments referencing one requirement share one FPGA component; two named
+requirements with the same model allocate separate components. No FPGA or ordinary
+NIC is allocated on behalf of a referenced attachment.
+
+```yaml
+requirements:
+  devices:
+    - name: dataplane
+      type: fpga
+      constraints: {vendor: AMD, model: U280}
+networkAttachments:
+  - name: data-a
+    networkRef: network/data-a
+    deviceRequirementRef: dataplane
+    interfaceRequirements: {type: ethernet}
+  - name: data-b
+    networkRef: network/data-b
+    deviceRequirementRef: dataplane
+    interfaceRequirements: {type: ethernet}
+```
+
+| Exact DeviceRequirement model selector | FABRIC component model | Maximum bound logical interfaces |
+| --- | --- | --- |
+| `U280`, existing explicit alias `Alveo U280` | `FPGA_Xilinx_U280` | 2 |
+| `SN1022` | `FPGA_Xilinx_SN1022` | 2 |
+
+Vendor may be omitted, `AMD`, or `Xilinx`, exactly as in allocation-only requests.
+No new aliases, case folding, or arbitrary model normalization are supported;
+FABRIC component model strings are output values, not generic selectors.
+Ethernet intent is required. FPGA has no supported `adapter.class` mapping:
+all explicit classes (`standard`, `smartnic`, `dpu`, `other`) fail. Because the
+generic schema requires a class in an `adapter` block, omit that block and put
+FPGA model/vendor selectors on the DeviceRequirement. Core validation still
+rejects contradictory device/interface model or vendor selectors. Speed
+requirements and nonempty interface/device features fail; empty feature lists
+add no constraint. Capabilities are not inferred from the model name.
+
+FIM **1.9.0** exposes two provider network endpoints for each approved model.
+That catalog evidence supports allocation and binding limits, **not two verified
+operational FPGA datapaths**. `fpgaN` follows authored device allocation order,
+including count expansion of unbound requirements. `iface1`/`iface2` follow
+authored attachment order within that FPGA; `ethN`/`conn-ethN` retain the original
+node-wide attachment ordinal across FPGA, DPU, and ordinary NIC attachments.
+Other device-family counters remain independent. Unused endpoints produce no
+placeholder interfaces. These guest labels do not discover OS device names.
+
+The downstream workflow enumerates the interface mapping and binds entry `i` to
+`component.get_interfaces()[i]`. Thus `iface1` and `iface2` are **logical positional
+bindings**: provider enumeration may be reversed, and `iface1` is not guaranteed
+to select physical `p1`. Physical-port selectors are outside C3.2.
+
+`L2Bridge`, `L2STS`, `IPv4`, `IPv6`, `IPv4Ext`, and `IPv6Ext` are the six supported
+offline service representations, each requiring separate live acceptance.
+Existing site, endpoint, Cluster ownership, and address rules apply. In particular,
+**at most one FABNet NetworkAttachment per VM** is allowed across FPGA, DPU, and
+NIC families, even for repeated attachments to the same Network. FABNet requires
+one mapped endpoint site and omitted authored addresses/prefixes/gateways/DNS;
+it renders the existing empty subnet/address-family blocks. Addressless L2 omits
+address blocks; authored L2 addresses preserve existing prefix/gateway/DNS rules.
+FPGA-backed L2PTP remains unsupported: only `NIC_ConnectX_6` qualifies under the
+existing addressless, two-endpoint, two-site restrictions. No guest VLAN is added.
+
+SN1022's second-port dataplane behavior remains uncertain. A successful render,
+Pydantic parse, or mocked downstream binding proves neither FPGA activation nor
+packet flow. Downstream deployment can log and skip component or binding failures;
+live acceptance must inspect actual allocated components and NetworkService
+interface memberships, not just submission success or a returned topology.
+Link-down before activation is not by itself an allocation/binding failure.
+
+Bitstream installation/programming, FPGA MAC or packet-processing pipelines,
+drivers/kernel modules, FPGA ARM management, guest interface discovery, guest IP
+configuration, persistent routes/VLANs, public-routing activation, forwarding,
+and throughput tests are excluded. The historical `m5-complex.yml` bindings
+illustrate topology intent, not complete guest configuration. C2.4.5's two-DPU
+live test remains **hardware-blocked and partially verified**; C3.2 does not
+change that status.
+
+Offline fixtures cover [L2Bridge](../tests/fixtures/fabric-fpga-l2bridge.yaml),
+[L2STS](../tests/fixtures/fabric-fpga-l2sts.yaml),
+[FABNet with L2Bridge](../tests/fixtures/fabric-fpga-fabnet-l2bridge.yaml), and
+[two identical FPGAs](../tests/fixtures/fabric-fpga-two-devices.yaml).
+The [allocation-only golden](../tests/fixtures/fabric-fpga-allocation-only-rendered.yaml)
+was captured before implementation from committed revision
+`0bb7149e07c858c60ea83d487c826f36c79199fb`; it covers both models, the existing
+alias, count expansion, and independent PCI numbering. Tests parse generated YAML
+with installed downstream models when available and exercise the inspected
+deployment functions with test doubles, including reversed provider enumeration.
+These tests perform no live FABRIC operations.
 
 ### Reviewed downstream compatibility context
 
@@ -412,7 +501,7 @@ services are `L2Bridge`, `L2STS`, `IPv4`, `IPv6`, `IPv4Ext`, and `IPv6Ext` under
 existing network restrictions. One FABNet port plus one L2STS port is supported.
 One FABNet port plus one L2Bridge port is supported when all L2Bridge endpoints
 map to one FABRIC site. Two L2 ports are also supported. **At most one FABNet
-NetworkAttachment per VM** is allowed across all NICs and DPUs, including repeated
+NetworkAttachment per VM** is allowed across all NICs, DPUs, and FPGAs, including repeated
 attachments to the same FABNet Network. FABNet still requires one mapped endpoint
 site, all endpoints in the selected Cluster, and omitted provider-managed address
 configuration. DPU PCI dedication does not confer L2PTP eligibility: L2PTP still
@@ -436,8 +525,7 @@ interface renderer: FABNet emits `ipv4: {}` and `ipv6: {}`; addressless L2 omits
 blocks; authored L2 addresses use the existing prefix/gateway/DNS rules. No guest
 VLAN, management address, or dataplane address is invented. ARM OS, `tmfifo_net0`,
 RShim, BMC, bitstreams, FPGA activation/kernels, and guest IP configuration are
-outside this milestone. Generic FPGA device references fail explicitly in this
-provider until FPGA interface realization is implemented.
+outside this milestone. FPGA device references use the separate C3.2 policy above.
 
 Historical `dpu.yml` and `dpu4-7.yml` provide semantic references for ordered DPU
 interfaces, FABNet placeholders, and authored L2 addresses. Their experiment
@@ -570,10 +658,10 @@ selected Cluster's endpoints, even when other Clusters use the same Network.
 | Layer2 multipoint with more than two effective endpoint sites | Translation error |
 | Explicit layer2, point-to-point, exactly two complete dedicated endpoints at exactly two effective FABRIC sites, no L3 configuration | `L2PTP` |
 | Other point-to-point combinations | Translation error; no downgrade to a multipoint service |
-| Layer3, IPv4, provider-managed, provider-internal, multipoint, one mapped endpoint site, supported FABNet NIC or DPU | `IPv4` (FABNetv4) |
-| Layer3, IPv6, provider-managed, provider-internal, multipoint, one mapped endpoint site, supported FABNet NIC or DPU | `IPv6` (FABNetv6) |
-| Layer3, IPv4, provider-managed, public, multipoint, one mapped endpoint site, supported FABNet NIC or DPU | `IPv4Ext` (FABNetv4Ext) |
-| Layer3, IPv6, provider-managed, public, multipoint, one mapped endpoint site, supported FABNet NIC or DPU | `IPv6Ext` (FABNetv6Ext) |
+| Layer3, IPv4, provider-managed, provider-internal, multipoint, one mapped endpoint site, supported FABNet NIC, DPU, or FPGA | `IPv4` (FABNetv4) |
+| Layer3, IPv6, provider-managed, provider-internal, multipoint, one mapped endpoint site, supported FABNet NIC, DPU, or FPGA | `IPv6` (FABNetv6) |
+| Layer3, IPv4, provider-managed, public, multipoint, one mapped endpoint site, supported FABNet NIC, DPU, or FPGA | `IPv4Ext` (FABNetv4Ext) |
+| Layer3, IPv6, provider-managed, public, multipoint, one mapped endpoint site, supported FABNet NIC, DPU, or FPGA | `IPv6Ext` (FABNetv6Ext) |
 | Partial/unsupported Layer3 intent or unspecified layer | Translation error |
 
 `Network.siteRefs` declares allowed scope, already enforced by core validation.
@@ -600,7 +688,7 @@ A selected point-to-point Network with one endpoint still fails provider
 eligibility. Multipoint selection is unchanged.
 
 Both endpoint interfaces must belong to resolved `NIC_ConnectX_6` components.
-NIC_Basic, NIC_ConnectX_5, and both ConnectX-7 DPU models do not qualify; plain
+NIC_Basic, NIC_ConnectX_5, both ConnectX-7 DPU models, and both FPGA models do not qualify; plain
 Ethernet is never upgraded automatically.
 An endpoint may be one port of a grouped component whose other port serves a
 different Network. Its dedicated identity may come from a compatible selector
@@ -680,10 +768,13 @@ tunnels, routes, or Networks. There is no exactly-two-endpoint requirement.
 The following adapter restrictions apply to all four services:
 
 - Every FABNet attachment must resolve to `NIC_Basic`, `NIC_ConnectX_5`,
-  `NIC_ConnectX_6`, `NIC_ConnectX_7_100`, or `NIC_ConnectX_7_400`. Dedicated NICs
-  retain adapterGroup sharing. DPU bindings use an existing allocation selected
-  by `deviceRequirementRef`. Both retain two-port limits and deterministic
-  naming. FPGA bindings remain deferred; allocation-only devices are unchanged.
+  `NIC_ConnectX_6`, `NIC_ConnectX_7_100`, `NIC_ConnectX_7_400`, `FPGA_Xilinx_U280`,
+  or `FPGA_Xilinx_SN1022`. Dedicated NICs retain adapterGroup sharing. DPU and
+  FPGA bindings reuse existing allocations selected by `deviceRequirementRef`,
+  with separate model/vendor policies. Dedicated NICs, DPUs, and FPGAs retain
+  two-interface limits and deterministic naming; allocation-only devices are
+  unchanged. FPGA combinations are offline representations requiring separate
+  live acceptance.
 - At most one FABNet attachment per VM, including repeated attachments to the
   same Network. Other eligible L2 attachments may coexist. This reflects the
   reviewed workflow's first-matching-interface selection and persistent route
@@ -905,7 +996,7 @@ DPU allocations. It renders `dpu1` and `dpu2` without DPU interfaces or live
 hardware requirements, and stays outside recursive examples.
 
 Live FABRIC operations, facility ports, L2PTP guest VLAN/IP configuration, other dedicated NIC models,
-FPGA bindings and unsupported device rendering,
+unsupported device rendering, FPGA activation and guest configuration,
 public-routing activation, runtime address allocation, DHCP, Ansible, postboot, SELinux,
 and filesystem/mount rendering remain outside this increment.
 
