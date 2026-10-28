@@ -104,6 +104,12 @@ FIM NetworkService, or graph database integration are implemented.
 Exact placement checks compare each node with declared capabilities;
 they do not prove live availability, image compatibility, routing, or deployability.
 
+The [C4.5 FABRIC integration checkpoint](docs/fabric-integration-checkpoint.md)
+records reported live acceptance, the downstream strict provision-only contract,
+source/version evidence, and deferred work. Its acceptance scope is provider
+allocation and network binding; guest networking and dataplane behavior remain
+outside that scope.
+
 ClusterNode execution form is `realization.type: vm` or `baremetal`. CPU demand
 uses `requirements.compute.cpu: {count: 4, unit: vcpu}` (`core` and `thread`
 express physical demand). `placement.resourceRef` selects an existing Server
